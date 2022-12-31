@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <assert.h>
+#include <locale.h> // setlocale
 
 #define foreach(_i, _count) for (typeof(_count) _i = 0; _i < _count; ++_i)
 #define MAX_BUFFER_SIZE (200 * 80)
@@ -29,6 +30,12 @@ typedef uint16_t u16;
 typedef int8_t i8;
 typedef uint8_t u8;
 
+typedef i8 Item;
+
+const Item border_item_corner = '+';
+const Item border_item_vertical = '|';
+const Item border_item_horizontal = '-';
+
 typedef enum Result { NoError, Error, Done } Result;
 static char* err_string = "";
 
@@ -38,7 +45,7 @@ typedef struct Termgui {
   struct termios term;
   u32 width;
   u32 height;
-  i8 buffer[MAX_BUFFER_SIZE];
+  Item buffer[MAX_BUFFER_SIZE];
   i32 cursor_x;
   i32 cursor_y;
   i32 render_event;
@@ -53,10 +60,11 @@ static Termgui term_gui = {0};
 TERMGUI_API Result tg_init();
 TERMGUI_API Result tg_update();
 TERMGUI_API Result tg_render();
+TERMGUI_API void tg_box(u32 x_pos, u32 y_pos, u32 w, u32 h, char* title);
 TERMGUI_API u32 tg_width();
 TERMGUI_API u32 tg_height();
 TERMGUI_API void tg_cursor_move(i32 delta_x, i32 delta_y);
-TERMGUI_API void tg_render_column(u32 column, i8 item);
+TERMGUI_API void tg_render_column(u32 column, Item item);
 TERMGUI_API void tg_exit();
 TERMGUI_API char* tg_err_string();
 TERMGUI_API void tg_print_error();
@@ -64,8 +72,12 @@ TERMGUI_API void tg_free();
 
 i32 tg_handle_input(Termgui* tg);
 static void tg_prepare_frame(Termgui* tg);
-static void tg_plot(Termgui* tg, u32 x, u32 y, i8 item);
-static void tg_box(Termgui* tg, u32 x_pox, u32 y_pos, u32 w, u32 h, i8 border_item);
+static void tg_plot(Termgui* tg, u32 x, u32 y, Item item);
+static void tg_render_box(Termgui* tg, u32 x_pox, u32 y_pos, u32 w, u32 h);
+static void tg_render_box_with_title(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h, char* title);
+static void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length);
+static void tg_render_horizontal_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length);
+static void tg_render_vertical_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length);
 static void tg_cursor_update(Termgui* tg);
 static void tg_term_fetch_size(Termgui* tg);
 static void tg_term_clear(Termgui* tg);
@@ -115,6 +127,11 @@ Result tg_init() {
     signal(SIGWINCH, sigwinch);
     signal(SIGINT, sigint);
     tg_queue_sig_event(tg, SIG_EVENT_WINCH);
+
+    if (!setlocale(LC_CTYPE, "")) {
+      dprintf(tg->fd, "[warning]: no locale support\n");
+    }
+
   }
   return tg->status;
 }
@@ -128,7 +145,6 @@ Result tg_update() {
   if (!Ok(tg->status)) {
     return tg->status;
   }
-  tg_box(tg, (tg->width >> 1) - 6, (tg->height >> 1) - 3, 12, 6, '+');
   return tg->status;
 }
 
@@ -142,6 +158,15 @@ Result tg_render() {
     (void)write_size;
   }
   return tg->status;
+}
+
+void tg_box(u32 x_pos, u32 y_pos, u32 w, u32 h, char* title) {
+  Termgui* tg = &term_gui;
+  if (title) {
+    tg_render_box_with_title(tg, x_pos, y_pos, w, h, title);
+    return;
+  }
+  tg_render_box(tg, x_pos, y_pos, w, h);
 }
 
 u32 tg_width() {
@@ -173,27 +198,64 @@ void tg_prepare_frame(Termgui* tg) {
   memset(&tg->buffer[0], ' ', tg->width * tg->height);
 }
 
-void tg_plot(Termgui* tg, u32 x, u32 y, i8 item) {
+void tg_plot(Termgui* tg, u32 x, u32 y, Item item) {
   x = CLAMP(x, 0, tg->width - 1);
   y = CLAMP(y, 0, tg->height - 1);
   tg->buffer[y * tg->width + x] = item;
 }
 
 // TODO(lucas): wrap to border (to terminal border and user defined border)
-void tg_box(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h, i8 border_item) {
+void tg_render_box(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h) {
   x_pos = CLAMP(x_pos, 0, tg->width - 1);
   y_pos = CLAMP(y_pos, 0, tg->height - 1);
   w = CLAMP(w, 0, w);
-  h = CLAMP(w, 0, h);
+  h = CLAMP(h, 0, h);
 
-  for (u32 y = 0; y < h; ++y) {
-    tg_plot(tg, x_pos, y_pos + y, border_item);
-    tg_plot(tg, x_pos + w - 1, y_pos + y, border_item);
+  for (u32 y = 1; y < h - 1; ++y) {
+    tg_plot(tg, x_pos, y_pos + y, border_item_vertical);
+    tg_plot(tg, x_pos + w - 1, y_pos + y, border_item_vertical);
   }
-  for (u32 x = 0; x < w; ++x) {
-    tg_plot(tg, x_pos + x, y_pos, border_item);
-    tg_plot(tg, x_pos + x, y_pos + h - 1, border_item);
+  for (u32 x = 1; x < w - 1; ++x) {
+    tg_plot(tg, x_pos + x, y_pos, border_item_horizontal);
+    tg_plot(tg, x_pos + x, y_pos + h - 1, border_item_horizontal);
   }
+  tg_plot(tg, x_pos, y_pos, border_item_corner);
+  tg_plot(tg, x_pos + w - 1, y_pos, border_item_corner);
+  tg_plot(tg, x_pos, y_pos + h - 1, border_item_corner);
+  tg_plot(tg, x_pos + w - 1, y_pos + h - 1, border_item_corner);
+}
+
+void tg_render_box_with_title(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h, char* title) {
+  tg_render_box(tg, x_pos, y_pos, w, h);
+  tg_render_horizontal_line(tg, x_pos, y_pos + 2, w);
+  tg_render_text(tg, x_pos + 1, y_pos + 1, title, w - 2);
+}
+
+void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length) {
+  for (u32 i = 0; i < length; ++i) {
+    Item item = text[i];
+    if (item == 0) {
+      break;
+    }
+    tg_plot(tg, x_pos, y_pos, item);
+    x_pos++;
+  }
+}
+
+void tg_render_horizontal_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length) {
+  x_pos = CLAMP(x_pos, 0, tg->width - 1);
+  y_pos = CLAMP(y_pos, 0, tg->height - 1);
+  tg_plot(tg, x_pos, y_pos, border_item_corner);
+  tg_plot(tg, x_pos + length - 1, y_pos, border_item_corner);
+  if (length > 2) {
+    for (u32 i = 1; i < length - 2; ++i) {
+      tg_plot(tg, x_pos + i, y_pos, border_item_horizontal);
+    }
+  }
+}
+
+void tg_render_vertical_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length) {
+
 }
 
 void tg_cursor_move(i32 delta_x, i32 delta_y) {
@@ -203,7 +265,7 @@ void tg_cursor_move(i32 delta_x, i32 delta_y) {
   tg->render_event = 1;
 }
 
-void tg_render_column(u32 column, i8 item) {
+void tg_render_column(u32 column, Item item) {
   Termgui* tg = &term_gui;
   if (column >= tg->width) {
     column = tg->width - 1;
