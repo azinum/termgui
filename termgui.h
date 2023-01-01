@@ -15,13 +15,17 @@
 #include <locale.h> // setlocale
 
 #define foreach(_i, _count) for (typeof(_count) _i = 0; _i < _count; ++_i)
-#define MAX_BUFFER_SIZE (200 * 80)
 #define TERMGUI_API static
 #define Ok(err) (err == NoError)
 #define Err(message) (err_string = message, term_gui.status = Error, Error)
 #define MIN(x, y)(x < y ? x : y)
 #define MAX(x, y) (x > y ? x : y)
 #define CLAMP(x, x_min, x_max) MIN(MAX(x_min, x), x_max)
+#define UTF8_SIZE (4)
+#define MAX_CELL_COUNT (200 * 80)
+#define MAX_BUFFER_SIZE (UTF8_SIZE * MAX_CELL_COUNT)
+#define LENGTH(ARR) (sizeof(ARR) / sizeof(ARR[0]))
+#define IN_BOUNDS(x, a, b) ((x >= a) && (x <= b))
 
 typedef int32_t i32;
 typedef uint32_t u32;
@@ -30,11 +34,44 @@ typedef uint16_t u16;
 typedef int8_t i8;
 typedef uint8_t u8;
 
+static u8 utf8_mask[] = { 0xc0, 0x80, 0xe0, 0xf0, 0xf8 };
+static u8 utf8_byte[] = { 0x80, 0x00, 0xc0, 0xe0, 0xf0 };
+
+typedef struct Cell {
+  u8 code[UTF8_SIZE];
+} Cell;
+
 typedef i8 Item;
 
-const Item border_item_corner = '+';
-const Item border_item_vertical = '|';
-const Item border_item_horizontal = '-';
+Cell border_cell_corner =     { .code = {	0xe2, 0x94, 0x8c, 0x00 } };
+Cell border_cell_vertical =   { .code = { 0xe2, 0x94, 0x82, 0x00 } };
+Cell border_cell_horizontal = { .code = { 0xe2, 0x94, 0x80, 0x00 } };
+
+enum Border_cell_orientation {
+  BORDER_CELL_TOP_LEFT = 0,
+  BORDER_CELL_TOP_RIGHT,
+  BORDER_CELL_BOTTOM_LEFT,
+  BORDER_CELL_BOTTOM_RIGHT,
+
+  BORDER_CELL_CONN_LEFT,
+  BORDER_CELL_CONN_RIGHT,
+  BORDER_CELL_CONN_TOP,
+  BORDER_CELL_CONN_BOTTOM,
+
+  MAX_BORDER_CELL
+};
+
+Cell border_cell_corners[MAX_BORDER_CELL] = {
+  { .code = {	0xe2, 0x94, 0x8c, 0x00 } }, // top left
+  { .code = {	0xe2, 0x94, 0x90, 0x00 } }, // top right
+  { .code = { 0xe2, 0x94, 0x94, 0x00 } }, // bottom left
+  { .code = { 0xe2, 0x94, 0x98, 0x00 } }, // bottom right
+
+  { .code = { 0xe2, 0x94, 0x9c, 0x00 } }, // left connection
+  { .code = { 0xe2, 0x94, 0xa4, 0x00 } }, // right connection
+  { .code = { 0xe2, 0x94, 0xac, 0x00 } }, // top connection
+  { .code = { 0xe2, 0x94, 0xb4, 0x00 } }, // bottom connection
+};
 
 typedef enum Result { NoError, Error, Done } Result;
 static char* err_string = "";
@@ -45,7 +82,9 @@ typedef struct Termgui {
   struct termios term;
   u32 width;
   u32 height;
-  Item buffer[MAX_BUFFER_SIZE];
+  u32 size; // width * height
+  Cell cells[MAX_CELL_COUNT];
+  i8 buffer[MAX_BUFFER_SIZE];
   i32 cursor_x;
   i32 cursor_y;
   i32 render_event;
@@ -64,15 +103,21 @@ TERMGUI_API void tg_box(u32 x_pos, u32 y_pos, u32 w, u32 h, char* title);
 TERMGUI_API u32 tg_width();
 TERMGUI_API u32 tg_height();
 TERMGUI_API void tg_cursor_move(i32 delta_x, i32 delta_y);
-TERMGUI_API void tg_render_column(u32 column, Item item);
 TERMGUI_API void tg_exit();
 TERMGUI_API char* tg_err_string();
 TERMGUI_API void tg_print_error();
 TERMGUI_API void tg_free();
 
+static i8 utf8_decode_byte(i8 byte, u32* size);
+
+static void tg_cells_init(Termgui* tg, Cell* cell);
+static void tg_cell_init(Cell* cell);
+static void tg_cell_init_ascii(Cell* cell, i8 ascii);
+
 i32 tg_handle_input(Termgui* tg);
 static void tg_prepare_frame(Termgui* tg);
 static void tg_plot(Termgui* tg, u32 x, u32 y, Item item);
+static void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell);
 static void tg_render_box(Termgui* tg, u32 x_pox, u32 y_pos, u32 w, u32 h);
 static void tg_render_box_with_title(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h, char* title);
 static void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length);
@@ -116,7 +161,9 @@ Result tg_init() {
   tg->tty = STDOUT_FILENO;
   tg->status = tg_term_init(tg);
   if (Ok(tg->status)) {
-    memset(&tg->buffer[0], ' ', sizeof(tg->buffer));
+    Cell cell;
+    tg_cell_init_ascii(&cell, ' ');
+    tg_cells_init(tg, &cell);
     tg->cursor_x = 0;
     tg->cursor_y = 0;
     tg->render_event = 1;
@@ -152,10 +199,31 @@ Result tg_render() {
   Termgui* tg = &term_gui;
   if (tg->render_event) {
     tg_term_clear(tg);
-    i32 write_size = write(tg->tty, &tg->buffer[0], tg->width * tg->height);
+    // 1) decode each cell
+    // 2) write to buffer
+    // 3) write buffer to tty
+    i32 decoded_size = 0;
+    i32 write_index = 0;
+    foreach(i, tg->size) {
+      Cell* cell = &tg->cells[i];
+      u32 code_size = 0;
+      utf8_decode_byte(cell->code[0], &code_size);
+      if (IN_BOUNDS(code_size, 1, UTF8_SIZE)) {
+        for (u32 code_index = 0; code_index < code_size; ++code_index) {
+          tg->buffer[write_index++] = cell->code[code_index];
+        }
+        decoded_size += code_size;
+        continue;
+      }
+      // render as ascii
+      tg->buffer[write_index++] = cell->code[0];
+      ++decoded_size;
+    }
+    assert(decoded_size <= tg->size * UTF8_SIZE);
+    i32 write_size = write(tg->tty, &tg->buffer[0], decoded_size);
+    (void)write_size;
     tg_cursor_update(tg);
     fsync(tg->tty);
-    (void)write_size;
   }
   return tg->status;
 }
@@ -195,13 +263,21 @@ i32 tg_handle_input(Termgui* tg) {
 }
 
 void tg_prepare_frame(Termgui* tg) {
-  memset(&tg->buffer[0], ' ', tg->width * tg->height);
+  Cell cell;
+  tg_cell_init_ascii(&cell, ' ');
+  tg_cells_init(tg, &cell);
 }
 
 void tg_plot(Termgui* tg, u32 x, u32 y, Item item) {
+  Cell cell;
+  tg_cell_init_ascii(&cell, item);
+  tg_plot_cell(tg, x, y, &cell);
+}
+
+void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell) {
   x = CLAMP(x, 0, tg->width - 1);
   y = CLAMP(y, 0, tg->height - 1);
-  tg->buffer[y * tg->width + x] = item;
+  memcpy(&tg->cells[y * tg->width + x], cell, sizeof(Cell));
 }
 
 // TODO(lucas): wrap to border (to terminal border and user defined border)
@@ -212,17 +288,17 @@ void tg_render_box(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h) {
   h = CLAMP(h, 0, h);
 
   for (u32 y = 1; y < h - 1; ++y) {
-    tg_plot(tg, x_pos, y_pos + y, border_item_vertical);
-    tg_plot(tg, x_pos + w - 1, y_pos + y, border_item_vertical);
+    tg_plot_cell(tg, x_pos, y_pos + y, &border_cell_vertical);
+    tg_plot_cell(tg, x_pos + w - 1, y_pos + y, &border_cell_vertical);
   }
   for (u32 x = 1; x < w - 1; ++x) {
-    tg_plot(tg, x_pos + x, y_pos, border_item_horizontal);
-    tg_plot(tg, x_pos + x, y_pos + h - 1, border_item_horizontal);
+    tg_plot_cell(tg, x_pos + x, y_pos, &border_cell_horizontal);
+    tg_plot_cell(tg, x_pos + x, y_pos + h - 1, &border_cell_horizontal);
   }
-  tg_plot(tg, x_pos, y_pos, border_item_corner);
-  tg_plot(tg, x_pos + w - 1, y_pos, border_item_corner);
-  tg_plot(tg, x_pos, y_pos + h - 1, border_item_corner);
-  tg_plot(tg, x_pos + w - 1, y_pos + h - 1, border_item_corner);
+  tg_plot_cell(tg, x_pos, y_pos, &border_cell_corners[BORDER_CELL_TOP_LEFT]);
+  tg_plot_cell(tg, x_pos + w - 1, y_pos, &border_cell_corners[BORDER_CELL_TOP_RIGHT]);
+  tg_plot_cell(tg, x_pos, y_pos + h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_LEFT]);
+  tg_plot_cell(tg, x_pos + w - 1, y_pos + h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_RIGHT]);
 }
 
 void tg_render_box_with_title(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h, char* title) {
@@ -245,11 +321,11 @@ void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length) {
 void tg_render_horizontal_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length) {
   x_pos = CLAMP(x_pos, 0, tg->width - 1);
   y_pos = CLAMP(y_pos, 0, tg->height - 1);
-  tg_plot(tg, x_pos, y_pos, border_item_corner);
-  tg_plot(tg, x_pos + length - 1, y_pos, border_item_corner);
+  tg_plot_cell(tg, x_pos, y_pos, &border_cell_corners[BORDER_CELL_CONN_LEFT]);
+  tg_plot_cell(tg, x_pos + length - 1, y_pos, &border_cell_corners[BORDER_CELL_CONN_RIGHT]);
   if (length > 2) {
-    for (u32 i = 1; i < length - 2; ++i) {
-      tg_plot(tg, x_pos + i, y_pos, border_item_horizontal);
+    for (u32 i = 1; i < length - 1; ++i) {
+      tg_plot_cell(tg, x_pos + i, y_pos, &border_cell_horizontal);
     }
   }
 }
@@ -265,16 +341,6 @@ void tg_cursor_move(i32 delta_x, i32 delta_y) {
   tg->render_event = 1;
 }
 
-void tg_render_column(u32 column, Item item) {
-  Termgui* tg = &term_gui;
-  if (column >= tg->width) {
-    column = tg->width - 1;
-  }
-  for (u32 y = 0; y < tg->height; ++y) {
-    tg_plot(tg, column, y, item);
-  }
-}
-
 void tg_exit() {
   term_gui.status = Done;  
 }
@@ -287,6 +353,31 @@ void tg_print_error() {
   if (term_gui.status == Error) {
     dprintf(term_gui.fd, "[termgui-error]: %s\n", tg_err_string());
   }
+}
+
+// https://git.suckless.org/st/
+i8 utf8_decode_byte(i8 byte, u32* size) {
+  for (*size = 0; *size < LENGTH(utf8_mask); ++(*size)) {
+    if (((u8)byte & utf8_mask[*size]) == utf8_byte[*size]) {
+      return (u8)byte & ~utf8_mask[*size];
+    }
+  }
+  return 0;
+}
+
+void tg_cells_init(Termgui* tg, Cell* cell) {
+  for (u32 i = 0; i < tg->size; ++i) {
+    memcpy(&tg->cells[i], cell, sizeof(Cell));
+  }
+}
+
+void tg_cell_init(Cell* cell) {
+  memset(cell, 0, sizeof(Cell));
+}
+
+void tg_cell_init_ascii(Cell* cell, i8 ascii) {
+  memset(cell, 0, sizeof(Cell));
+  cell->code[0] = ascii;
 }
 
 void tg_free() {
@@ -304,6 +395,7 @@ void tg_term_fetch_size(Termgui* tg) {
   ioctl(STDOUT_FILENO, TIOCGWINSZ, &win);
   tg->width = win.ws_col;
   tg->height = win.ws_row;
+  tg->size = tg->width * tg->height;
   tg->render_event = 1;
 }
 

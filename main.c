@@ -1,15 +1,14 @@
 // main.c
-
+#include <time.h>
 #include "termgui.h"
 
 int main(int argc, char** argv) {
   if (Ok(tg_init())) {
-    tg_render();
     while (Ok(tg_update())) {
-      tg_box(0, 2, 48, 10, "here is a title");
-      tg_box(49, 2, 48, 10, "here is a title");
-      tg_box(10, 5, 24, 12, "title here");
-      // tg_box_with_title(tg, (tg->width >> 1) - 6, (tg->height >> 1) - 3, 28, 10, "tg_box");
+      tg_box(0, 0, tg_width(), tg_height(), "termgui example");
+      tg_box(1, 3, 48, 10, "here is a title");
+      tg_box(50, 3, 32, 10, "here is another title");
+      tg_box(1, 13, 24, 12, "yet another title");
       tg_render();
     }
     tg_free();
