@@ -5,6 +5,12 @@
 int main(int argc, char** argv) {
   if (Ok(tg_init())) {
     while (Ok(tg_update())) {
+      i8 input = 0;
+      if (tg_input(&input)) {
+        if (input == 'c') {
+          tg_colors_toggle();
+        }
+      }
       tg_box(0, 0, tg_width(), tg_height(), "termgui example");
       tg_box(1, 3, 48, 10, "here is a title");
       tg_box(50, 3, 32, 10, "here is another title");

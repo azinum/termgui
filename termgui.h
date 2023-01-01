@@ -175,6 +175,8 @@ typedef struct Termgui {
   i32 initialized;
   Result status;
   i32 fd; // fd for logging
+  i32 input_event;
+  i8 input_code;
 } Termgui;
 
 static Termgui term_gui = {0};
@@ -183,11 +185,13 @@ static Termgui term_gui = {0};
 TERMGUI_API Result tg_init();
 TERMGUI_API Result tg_update();
 TERMGUI_API Result tg_render();
+TERMGUI_API i32 tg_input(i8* input);
 TERMGUI_API void tg_box(u32 x_pos, u32 y_pos, u32 w, u32 h, char* title);
 TERMGUI_API u32 tg_width();
 TERMGUI_API u32 tg_height();
 TERMGUI_API void tg_cursor_move(i32 delta_x, i32 delta_y);
 TERMGUI_API void tg_exit();
+TERMGUI_API void tg_colors_toggle();
 TERMGUI_API char* tg_err_string();
 TERMGUI_API void tg_print_error();
 TERMGUI_API void tg_free();
@@ -255,6 +259,8 @@ Result tg_init() {
     tg->initialized = 1;
     tg->status = NoError;
     tg->fd = open(log_file_name, O_CREAT | O_TRUNC | O_WRONLY, 0662);
+    tg->input_event = 0;
+    tg->input_code = 0;
 
     signal(SIGWINCH, sigwinch);
     signal(SIGINT, sigint);
@@ -319,6 +325,15 @@ Result tg_render() {
   return tg->status;
 }
 
+i32 tg_input(i8* input) {
+  Termgui* tg = &term_gui;
+  i32 input_event = tg->input_event;
+  if (input && input_event) {
+    *input = tg->input_code;
+  }
+  return input_event;
+}
+
 void tg_box(u32 x_pos, u32 y_pos, u32 w, u32 h, char* title) {
   Termgui* tg = &term_gui;
   if (title) {
@@ -349,6 +364,11 @@ i32 tg_handle_input(Termgui* tg) {
         break;
     }
     tg->render_event = 1;
+    tg->input_event = 1;
+    tg->input_code = input;
+  }
+  else {
+    tg->input_event = 0;
   }
   return read_size;
 }
@@ -437,6 +457,11 @@ void tg_cursor_move(i32 delta_x, i32 delta_y) {
 
 void tg_exit() {
   term_gui.status = Done;  
+}
+
+void tg_colors_toggle() {
+  Termgui* tg = &term_gui;
+  tg->use_colors = !tg->use_colors;
 }
 
 char* tg_err_string() {
