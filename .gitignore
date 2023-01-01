@@ -1,6 +1,7 @@
 .DS_Store
 *.swo
 *.swp
+log.txt
+
 main
 utf8code
-log.txt

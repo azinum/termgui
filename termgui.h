@@ -24,10 +24,44 @@
 #define CLAMP(x, x_min, x_max) MIN(MAX(x_min, x), x_max)
 #define UTF8_SIZE (4)
 #define COLOR_CODE_SIZE 7
-#define MAX_CELL_COUNT (200 * 80)
+#define MAX_CELL_COUNT (300 * 80)
 #define MAX_BUFFER_SIZE (UTF8_SIZE * MAX_CELL_COUNT * COLOR_CODE_SIZE)
 #define LENGTH(ARR) (sizeof(ARR) / sizeof(ARR[0]))
 #define IN_BOUNDS(x, a, b) ((x >= a) && (x <= b))
+
+#define INIT_ITEMS_SIZE 32
+
+#ifdef CUSTOM_ALLOCATOR
+  #define MALLOC
+  #define FREE
+  #define REALLOC
+#else
+  #define MALLOC malloc
+  #define FREE free
+  #define REALLOC realloc
+#endif
+
+#define list_init(list, desired_size) \
+  if ((list)->size < desired_size) { \
+    (list)->size = desired_size; \
+    (list)->items = REALLOC((list)->items, (list)->size * sizeof(*(list)->items)); \
+    assert((list)->items != NULL && "out of memory"); \
+  }
+
+#define list_push(list, item) \
+  if ((list)->count >= (list)->size) { \
+    if ((list)->size == 0) { \
+      (list)->size = INIT_ITEMS_SIZE; \
+    } \
+    else { \
+      (list)->size *= 2; \
+    } \
+    (list)->items = REALLOC((list)->items, (list)->size * sizeof(*(list)->items)); \
+    assert((list)->items != NULL && "out of memory"); \
+  } \
+  (list)->items[(list)->count++] = (item)
+
+#define list_free(list) FREE(list)
 
 typedef int32_t i32;
 typedef uint32_t u32;
@@ -111,15 +145,15 @@ enum Border_cell_orientation {
 };
 
 static Cell border_cell_corners[MAX_BORDER_CELL] = {
-  { .code = {	0xe2, 0x94, 0x8c, 0x00 }, .fg = COLOR_NONE}, // top left
-  { .code = {	0xe2, 0x94, 0x90, 0x00 }, .fg = COLOR_NONE}, // top right
-  { .code = { 0xe2, 0x94, 0x94, 0x00 }, .fg = COLOR_NONE}, // bottom left
-  { .code = { 0xe2, 0x94, 0x98, 0x00 }, .fg = COLOR_NONE}, // bottom right
+  { .code = {	0xe2, 0x95, 0xad, 0x00 }, .fg = COLOR_NONE }, // top left
+  { .code = {	0xe2, 0x95, 0xae, 0x00 }, .fg = COLOR_NONE }, // top right
+  { .code = { 0xe2, 0x95, 0xb0, 0x00 }, .fg = COLOR_NONE }, // bottom left
+  { .code = { 0xe2, 0x95, 0xaf, 0x00 }, .fg = COLOR_NONE }, // bottom right
 
-  { .code = { 0xe2, 0x94, 0x9c, 0x00 }, .fg = COLOR_NONE}, // left connection
-  { .code = { 0xe2, 0x94, 0xa4, 0x00 }, .fg = COLOR_NONE}, // right connection
-  { .code = { 0xe2, 0x94, 0xac, 0x00 }, .fg = COLOR_NONE}, // top connection
-  { .code = { 0xe2, 0x94, 0xb4, 0x00 }, .fg = COLOR_NONE}, // bottom connection
+  { .code = { 0xe2, 0x94, 0x9c, 0x00 }, .fg = COLOR_NONE }, // left connection
+  { .code = { 0xe2, 0x94, 0xa4, 0x00 }, .fg = COLOR_NONE }, // right connection
+  { .code = { 0xe2, 0x94, 0xac, 0x00 }, .fg = COLOR_NONE }, // top connection
+  { .code = { 0xe2, 0x94, 0xb4, 0x00 }, .fg = COLOR_NONE }, // bottom connection
 };
 
 typedef enum Result { NoError, Error, Done } Result;
@@ -255,7 +289,7 @@ Result tg_render() {
     // 3) write buffer to tty
     i32 decoded_size = 0;
     i32 write_index = 0;
-    foreach(i, tg->size) {
+    for (u32 i = 0; i < tg->size; ++i) {
       Cell* cell = &tg->cells[i];
       if (tg->use_colors) {
         for (u32 color_code_index = 0; color_code_index < COLOR_CODE_SIZE; ++color_code_index) {
@@ -372,7 +406,7 @@ void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length) {
     }
     Cell cell;
     tg_cell_init_ascii(&cell, item);
-    cell.fg = COLOR_RED;
+    cell.fg = COLOR_BOLD_RED;
     tg_plot_cell(tg, x_pos, y_pos, &cell);
     x_pos++;
   }
@@ -506,7 +540,7 @@ void tg_queue_sig_event(Termgui* tg, Signal_event event) {
 }
 
 void tg_handle_sig_events(Termgui* tg) {
-  foreach(i, signal_event_count) {
+  for (u32 i = 0; i < signal_event_count; ++i) {
     signal_callback callback = signal_event_callbacks[signal_events[i]];
     callback(tg);
   }
