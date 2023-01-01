@@ -1,5 +1,5 @@
 // main.c
-#include <time.h>
+
 #include "termgui.h"
 
 int main(int argc, char** argv) {

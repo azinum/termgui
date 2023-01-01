@@ -1,4 +1,5 @@
 // termgui.h
+// TODO(lucas): limit the window size
 
 #ifndef _TERMGUI_H
 #define _TERMGUI_H
@@ -18,12 +19,13 @@
 #define TERMGUI_API static
 #define Ok(err) (err == NoError)
 #define Err(message) (err_string = message, term_gui.status = Error, Error)
-#define MIN(x, y)(x < y ? x : y)
+#define MIN(x, y) (x < y ? x : y)
 #define MAX(x, y) (x > y ? x : y)
 #define CLAMP(x, x_min, x_max) MIN(MAX(x_min, x), x_max)
 #define UTF8_SIZE (4)
+#define COLOR_CODE_SIZE 7
 #define MAX_CELL_COUNT (200 * 80)
-#define MAX_BUFFER_SIZE (UTF8_SIZE * MAX_CELL_COUNT)
+#define MAX_BUFFER_SIZE (UTF8_SIZE * MAX_CELL_COUNT * COLOR_CODE_SIZE)
 #define LENGTH(ARR) (sizeof(ARR) / sizeof(ARR[0]))
 #define IN_BOUNDS(x, a, b) ((x >= a) && (x <= b))
 
@@ -34,18 +36,65 @@ typedef uint16_t u16;
 typedef int8_t i8;
 typedef uint8_t u8;
 
+static const char* log_file_name = "log.txt";
+
+typedef enum Color {
+  COLOR_NONE = 0,
+
+  COLOR_BLACK,
+  COLOR_RED,
+  COLOR_GREEN,
+  COLOR_YELLOW,
+  COLOR_BLUE,
+  COLOR_PURPLE,
+  COLOR_CYAN,
+  COLOR_WHITE,
+
+  COLOR_BOLD_BLACK,
+  COLOR_BOLD_RED,
+  COLOR_BOLD_GREEN,
+  COLOR_BOLD_YELLOW,
+  COLOR_BOLD_BLUE,
+  COLOR_BOLD_PURPLE,
+  COLOR_BOLD_CYAN,
+  COLOR_BOLD_WHITE,
+
+  MAX_COLOR
+} Color;
+
+static const char* color_code_str[MAX_COLOR] = {
+  "\033[0;00m",
+  "\033[0;30m",
+  "\033[0;31m",
+  "\033[0;32m",
+  "\033[0;33m",
+  "\033[0;34m",
+  "\033[0;35m",
+  "\033[0;36m",
+  "\033[0;37m",
+
+  "\033[1;30m",
+  "\033[1;31m",
+  "\033[1;32m",
+  "\033[1;33m",
+  "\033[1;34m",
+  "\033[1;35m",
+  "\033[1;36m",
+  "\033[1;37m",
+};
+
 static u8 utf8_mask[] = { 0xc0, 0x80, 0xe0, 0xf0, 0xf8 };
 static u8 utf8_byte[] = { 0x80, 0x00, 0xc0, 0xe0, 0xf0 };
 
 typedef struct Cell {
   u8 code[UTF8_SIZE];
+  u16 fg;
 } Cell;
 
 typedef i8 Item;
 
-Cell border_cell_corner =     { .code = {	0xe2, 0x94, 0x8c, 0x00 } };
-Cell border_cell_vertical =   { .code = { 0xe2, 0x94, 0x82, 0x00 } };
-Cell border_cell_horizontal = { .code = { 0xe2, 0x94, 0x80, 0x00 } };
+static Cell border_cell_vertical =   { .code = { 0xe2, 0x94, 0x82, 0x00 }, .fg = COLOR_NONE };
+static Cell border_cell_horizontal = { .code = { 0xe2, 0x94, 0x80, 0x00 }, .fg = COLOR_NONE };
 
 enum Border_cell_orientation {
   BORDER_CELL_TOP_LEFT = 0,
@@ -61,16 +110,16 @@ enum Border_cell_orientation {
   MAX_BORDER_CELL
 };
 
-Cell border_cell_corners[MAX_BORDER_CELL] = {
-  { .code = {	0xe2, 0x94, 0x8c, 0x00 } }, // top left
-  { .code = {	0xe2, 0x94, 0x90, 0x00 } }, // top right
-  { .code = { 0xe2, 0x94, 0x94, 0x00 } }, // bottom left
-  { .code = { 0xe2, 0x94, 0x98, 0x00 } }, // bottom right
+static Cell border_cell_corners[MAX_BORDER_CELL] = {
+  { .code = {	0xe2, 0x94, 0x8c, 0x00 }, .fg = COLOR_NONE}, // top left
+  { .code = {	0xe2, 0x94, 0x90, 0x00 }, .fg = COLOR_NONE}, // top right
+  { .code = { 0xe2, 0x94, 0x94, 0x00 }, .fg = COLOR_NONE}, // bottom left
+  { .code = { 0xe2, 0x94, 0x98, 0x00 }, .fg = COLOR_NONE}, // bottom right
 
-  { .code = { 0xe2, 0x94, 0x9c, 0x00 } }, // left connection
-  { .code = { 0xe2, 0x94, 0xa4, 0x00 } }, // right connection
-  { .code = { 0xe2, 0x94, 0xac, 0x00 } }, // top connection
-  { .code = { 0xe2, 0x94, 0xb4, 0x00 } }, // bottom connection
+  { .code = { 0xe2, 0x94, 0x9c, 0x00 }, .fg = COLOR_NONE}, // left connection
+  { .code = { 0xe2, 0x94, 0xa4, 0x00 }, .fg = COLOR_NONE}, // right connection
+  { .code = { 0xe2, 0x94, 0xac, 0x00 }, .fg = COLOR_NONE}, // top connection
+  { .code = { 0xe2, 0x94, 0xb4, 0x00 }, .fg = COLOR_NONE}, // bottom connection
 };
 
 typedef enum Result { NoError, Error, Done } Result;
@@ -88,6 +137,7 @@ typedef struct Termgui {
   i32 cursor_x;
   i32 cursor_y;
   i32 render_event;
+  i32 use_colors;
   i32 initialized;
   Result status;
   i32 fd; // fd for logging
@@ -114,7 +164,7 @@ static void tg_cells_init(Termgui* tg, Cell* cell);
 static void tg_cell_init(Cell* cell);
 static void tg_cell_init_ascii(Cell* cell, i8 ascii);
 
-i32 tg_handle_input(Termgui* tg);
+static i32 tg_handle_input(Termgui* tg);
 static void tg_prepare_frame(Termgui* tg);
 static void tg_plot(Termgui* tg, u32 x, u32 y, Item item);
 static void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell);
@@ -167,9 +217,10 @@ Result tg_init() {
     tg->cursor_x = 0;
     tg->cursor_y = 0;
     tg->render_event = 1;
+    tg->use_colors = 1;
     tg->initialized = 1;
     tg->status = NoError;
-    tg->fd = open("log.txt", O_CREAT | O_TRUNC | O_WRONLY, 0662);
+    tg->fd = open(log_file_name, O_CREAT | O_TRUNC | O_WRONLY, 0662);
 
     signal(SIGWINCH, sigwinch);
     signal(SIGINT, sigint);
@@ -206,6 +257,12 @@ Result tg_render() {
     i32 write_index = 0;
     foreach(i, tg->size) {
       Cell* cell = &tg->cells[i];
+      if (tg->use_colors) {
+        for (u32 color_code_index = 0; color_code_index < COLOR_CODE_SIZE; ++color_code_index) {
+          tg->buffer[write_index++] = color_code_str[cell->fg][color_code_index];
+        }
+        decoded_size += COLOR_CODE_SIZE;
+      }
       u32 code_size = 0;
       utf8_decode_byte(cell->code[0], &code_size);
       if (IN_BOUNDS(code_size, 1, UTF8_SIZE)) {
@@ -219,7 +276,7 @@ Result tg_render() {
       tg->buffer[write_index++] = cell->code[0];
       ++decoded_size;
     }
-    assert(decoded_size <= tg->size * UTF8_SIZE);
+    assert(decoded_size <= MAX_BUFFER_SIZE);
     i32 write_size = write(tg->tty, &tg->buffer[0], decoded_size);
     (void)write_size;
     tg_cursor_update(tg);
@@ -313,7 +370,10 @@ void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length) {
     if (item == 0) {
       break;
     }
-    tg_plot(tg, x_pos, y_pos, item);
+    Cell cell;
+    tg_cell_init_ascii(&cell, item);
+    cell.fg = COLOR_RED;
+    tg_plot_cell(tg, x_pos, y_pos, &cell);
     x_pos++;
   }
 }
@@ -336,8 +396,8 @@ void tg_render_vertical_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length) {
 
 void tg_cursor_move(i32 delta_x, i32 delta_y) {
   Termgui* tg = &term_gui;
-  tg->cursor_x += delta_x;
-  tg->cursor_y += delta_y;
+  tg->cursor_x = CLAMP(tg->cursor_x + delta_x, 0, tg->width);
+  tg->cursor_y = CLAMP(tg->cursor_y + delta_y, 0, tg->height);
   tg->render_event = 1;
 }
 
@@ -373,10 +433,11 @@ void tg_cells_init(Termgui* tg, Cell* cell) {
 
 void tg_cell_init(Cell* cell) {
   memset(cell, 0, sizeof(Cell));
+  cell->fg = COLOR_NONE;
 }
 
 void tg_cell_init_ascii(Cell* cell, i8 ascii) {
-  memset(cell, 0, sizeof(Cell));
+  tg_cell_init(cell);
   cell->code[0] = ascii;
 }
 
@@ -387,7 +448,7 @@ void tg_free() {
 }
 
 void tg_cursor_update(Termgui* tg) {
-  dprintf(tg->tty, "\033[%d;%df", tg->cursor_x, tg->cursor_y);
+  dprintf(tg->tty, "\033[%d;%df", tg->cursor_y, tg->cursor_x);
 }
 
 void tg_term_fetch_size(Termgui* tg) {
