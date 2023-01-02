@@ -5,10 +5,10 @@
 i32 main(i32 argc, char** argv) {
   if (Ok(tg_init())) {
     Element grid;
-    tg_grid_init(&grid, 0, 0, 0);
+    tg_grid_init(&grid, 0, 0);
 
     Element* g = tg_attach_element(NULL, &grid);
-    tg_grid_init(&grid, 0, 0, 1);
+    tg_grid_init(&grid, 0, 1);
     tg_attach_element(g, &grid);
     tg_attach_element(g, &grid);
     tg_attach_element(g, &grid);

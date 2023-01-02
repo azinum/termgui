@@ -172,7 +172,17 @@ typedef enum Element_type {
   ELEM_NONE = 0,
   ELEM_CONTAINER,
   ELEM_GRID,
+
+  MAX_ELEMENT_TYPE
 } Element_type;
+
+const char* element_type_str[MAX_ELEMENT_TYPE] = {
+  "none",
+  "container",
+  "grid",
+};
+
+const char* bool_str[] = { "false", "true" };
 
 typedef void (*element_callback)(void* userdata);
 
@@ -185,6 +195,12 @@ typedef struct Box {
 
 #define BOX(X, Y, W, H) ((Box) { .x = X, .y = Y, .w = W, .h = H })
 
+typedef union Element_data {
+  struct {
+    u32 max_cols;
+  } grid;
+} Element_data;
+
 typedef struct Element {
   struct Element* items; // children
   u32 count;
@@ -192,10 +208,9 @@ typedef struct Element {
 
   u32 id;
   Box box;
-  u32 grid_w;
-  u32 grid_h;
   Element_type type;
   element_callback callback;
+  Element_data data;
   u8 render; // render this element?
   u8 focus; // is the element in focus?
 } Element;
@@ -244,7 +259,7 @@ TERMGUI_API char* tg_err_string();
 TERMGUI_API void tg_print_error();
 TERMGUI_API void tg_free();
 
-TERMGUI_API Result tg_grid_init(Element* e, u32 grid_w, u32 grid_h, u8 render);
+TERMGUI_API Result tg_grid_init(Element* e, u32 max_cols, u8 render);
 TERMGUI_API Element* tg_attach_element(Element* target, Element* e);
 
 static u8 utf8_decode_byte(u8 byte, u32* size);
@@ -583,11 +598,10 @@ void tg_free() {
   ui_state_free(tg);
 }
 
-Result tg_grid_init(Element* e, u32 grid_w, u32 grid_h, u8 render) {
+Result tg_grid_init(Element* e, u32 max_cols, u8 render) {
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
-  e->grid_w = grid_w;
-  e->grid_h = grid_h;
+  e->data.grid.max_cols = max_cols;
   e->type = ELEM_GRID;
   e->render = render;
   return NoError;
@@ -695,10 +709,9 @@ void ui_element_init(Termgui* tg, Element* e) {
 
   e->id = tg->ui.id_counter++;
   e->box = BOX(0, 0, 0, 0);
-  e->grid_w = 0;
-  e->grid_h = 0;
   e->type = ELEM_NONE;
   e->callback = NULL;
+  memset(&e->data, 0, sizeof(Element_data));
   e->render = 1;
   e->focus = 0;
 }
@@ -783,8 +796,12 @@ void ui_print_element(Termgui* tg, Element* e) {
 
 void ui_print_elements(Termgui* tg, Element* e, u32 level) {
   dprintf(tg->fd, "{\n");
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "type: %s\n", element_type_str[e->type]);
   tabs(tg->fd, level + 1); dprintf(tg->fd, "id: %d\n", e->id);
-  tabs(tg->fd, level + 1); dprintf(tg->fd, "box: %d, %d, %d, %d\n", e->box.x, e->box.y, e->box.w, e->box.h);
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "render: %s\n", bool_str[e->render == 1]);
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "focus: %s\n", bool_str[e->focus == 1]);
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "box: {%d, %d, %d, %d}\n", e->box.x, e->box.y, e->box.w, e->box.h);
+
   for (u32 i = 0; i < e->count; ++i) {
     tabs(tg->fd, level + 1);
     ui_print_elements(tg, &e->items[i], level + 1);
