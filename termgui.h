@@ -103,7 +103,7 @@ typedef enum Color {
 } Color;
 
 static Color color_default = COLOR_NONE;
-static Color color_select = COLOR_BOLD_PURPLE;
+static Color color_focus = COLOR_BOLD_PURPLE;
 
 static const char* color_code_str[MAX_COLOR] = {
   "\033[0;00m",
@@ -190,6 +190,7 @@ typedef struct Element {
   u32 count;
   u32 size;
 
+  u32 id;
   Box box;
   u32 grid_w;
   u32 grid_h;
@@ -201,6 +202,7 @@ typedef struct Element {
 
 typedef struct Ui_state {
   Element root;
+  u32 id_counter;
 } Ui_state;
 
 typedef struct Termgui {
@@ -215,6 +217,7 @@ typedef struct Termgui {
   i32 cursor_x;
   i32 cursor_y;
   i32 render_event;
+  i32 switch_focus;
   i32 use_colors;
   i32 initialized;
   Result status;
@@ -281,13 +284,17 @@ static void tg_sig_event_winch(Termgui* tg);
 static void tg_sig_event_int(Termgui* tg);
 
 static void ui_state_init(Termgui* tg);
-static void ui_element_init(Element* e);
+static void ui_element_init(Termgui* tg, Element* e);
 static void ui_update_elements(Termgui* tg, Element* e);
 static void ui_update(Termgui* tg);
 static void ui_render_elements(Termgui* tg, Element* e);
 static void ui_render(Termgui* tg);
+static void ui_print_element(Termgui* tg, Element* e);
+static void ui_print_elements(Termgui* tg, Element* e, u32 level);
 static void ui_elements_free(Element* e);
 static void ui_state_free(Termgui* tg);
+
+static void tabs(u32 fd, const u32 count);
 
 typedef void (*signal_callback)(Termgui*);
 
@@ -312,6 +319,7 @@ Result tg_init() {
     tg->cursor_x = 0;
     tg->cursor_y = 0;
     tg->render_event = 1;
+    tg->switch_focus = 0;
     tg->use_colors = 1;
     tg->initialized = 1;
     tg->status = NoError;
@@ -418,6 +426,10 @@ i32 tg_handle_input(Termgui* tg) {
     switch (input) {
       case 4: { // ^D
         tg->status = Done;
+        break;
+      }
+      case '\t': {
+        tg->switch_focus = 1;
         break;
       }
       default:
@@ -566,17 +578,18 @@ void tg_cell_init_ascii(Cell* cell, char ascii) {
 void tg_free() {
   Termgui* tg = &term_gui;
   tcsetattr(tg->tty, TCSANOW, &tg->term_copy); // reset tty state
+  ui_print_elements(tg, &tg->ui.root, 0);
   close(tg->fd);
   ui_state_free(tg);
 }
 
 Result tg_grid_init(Element* e, u32 grid_w, u32 grid_h, u8 render) {
   Termgui* tg = &term_gui;
-  ui_element_init(e);
+  ui_element_init(tg, e);
   e->grid_w = grid_w;
   e->grid_h = grid_h;
   e->type = ELEM_GRID;
-  e->render = 1;
+  e->render = render;
   return NoError;
 }
 
@@ -668,17 +681,19 @@ void tg_sig_event_int(Termgui* tg) {
 
 void ui_state_init(Termgui* tg) {
   Element* root = &tg->ui.root;
-  ui_element_init(&tg->ui.root);
+  tg->ui.id_counter = 0;
+  ui_element_init(tg, &tg->ui.root);
   root->type = ELEM_CONTAINER;
   root->render = 0;
   root->focus = 1;
 }
 
-void ui_element_init(Element* e) {
+void ui_element_init(Termgui* tg, Element* e) {
   e->items = NULL;
   e->count = 0;
   e->size = 0;
 
+  e->id = tg->ui.id_counter++;
   e->box = BOX(0, 0, 0, 0);
   e->grid_w = 0;
   e->grid_h = 0;
@@ -715,12 +730,6 @@ void ui_update_elements(Termgui* tg, Element* e) {
           floorf((f32)pbox.w/e->count) - 2 * padding,
           pbox.h - 2 * padding
         );
-        dprintf(tg->fd, "Box {%d, %d, %d, %d}\n",
-          item->box.x,
-          item->box.y,
-          item->box.w,
-          item->box.h
-        );
         break;
       }
       default:
@@ -754,6 +763,36 @@ void ui_render(Termgui* tg) {
   ui_render_elements(tg, root);
 }
 
+void ui_print_element(Termgui* tg, Element* e) {
+  dprintf(
+    tg->fd,
+    "Element {\n"
+    "  id: %d\n"
+    "  box: {%d, %d, %d, %d}\n"
+    "  focus: %d\n"
+    "}\n"
+    ,
+    e->id,
+    e->box.x,
+    e->box.y,
+    e->box.w,
+    e->box.h,
+    e->focus
+  );
+}
+
+void ui_print_elements(Termgui* tg, Element* e, u32 level) {
+  dprintf(tg->fd, "{\n");
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "id: %d\n", e->id);
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "box: %d, %d, %d, %d\n", e->box.x, e->box.y, e->box.w, e->box.h);
+  for (u32 i = 0; i < e->count; ++i) {
+    tabs(tg->fd, level + 1);
+    ui_print_elements(tg, &e->items[i], level + 1);
+  }
+  tabs(tg->fd, level);
+  dprintf(tg->fd, "}\n");
+}
+
 void ui_elements_free(Element* e) {
   if (!e) {
     return;
@@ -768,4 +807,10 @@ void ui_state_free(Termgui* tg) {
   ui_elements_free(&tg->ui.root);
 }
 
+void tabs(u32 fd, const u32 count) {
+  const char* tab = "   ";
+  for (u32 i = 0; i < count; ++i) {
+    dprintf(fd, "%s", tab);
+  }
+}
 #endif // _TERMGUI_H
