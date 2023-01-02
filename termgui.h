@@ -1,9 +1,14 @@
 // termgui.h
-// TODO(lucas): limit the window size
+//
+// TODO:
+// - limit the window size
+// - validate utf-8
+// - configurable colors for elements
 
 #ifndef _TERMGUI_H
 #define _TERMGUI_H
 
+#include <stdlib.h> // malloc, realloc, free
 #include <stdint.h>
 #include <string.h> // memset
 #include <stdio.h>
@@ -14,8 +19,8 @@
 #include <signal.h>
 #include <assert.h>
 #include <locale.h> // setlocale
+#include <math.h> // floorf
 
-#define foreach(_i, _count) for (typeof(_count) _i = 0; _i < _count; ++_i)
 #define TERMGUI_API static
 #define Ok(err) (err == NoError)
 #define Err(message) (err_string = message, term_gui.status = Error, Error)
@@ -61,7 +66,7 @@
   } \
   (list)->items[(list)->count++] = (item)
 
-#define list_free(list) FREE(list)
+#define list_free(list) FREE((list)->items)
 
 typedef int32_t i32;
 typedef uint32_t u32;
@@ -69,6 +74,7 @@ typedef int16_t i16;
 typedef uint16_t u16;
 typedef int8_t i8;
 typedef uint8_t u8;
+typedef float f32;
 
 static const char* log_file_name = "log.txt";
 
@@ -95,6 +101,9 @@ typedef enum Color {
 
   MAX_COLOR
 } Color;
+
+static Color color_default = COLOR_NONE;
+static Color color_select = COLOR_BOLD_PURPLE;
 
 static const char* color_code_str[MAX_COLOR] = {
   "\033[0;00m",
@@ -125,7 +134,7 @@ typedef struct Cell {
   u16 fg;
 } Cell;
 
-typedef i8 Item;
+typedef char Item;
 
 static Cell border_cell_vertical =   { .code = { 0xe2, 0x94, 0x82, 0x00 }, .fg = COLOR_NONE };
 static Cell border_cell_horizontal = { .code = { 0xe2, 0x94, 0x80, 0x00 }, .fg = COLOR_NONE };
@@ -159,6 +168,41 @@ static Cell border_cell_corners[MAX_BORDER_CELL] = {
 typedef enum Result { NoError, Error, Done } Result;
 static char* err_string = "";
 
+typedef enum Element_type {
+  ELEM_NONE = 0,
+  ELEM_CONTAINER,
+  ELEM_GRID,
+} Element_type;
+
+typedef void (*element_callback)(void* userdata);
+
+typedef struct Box {
+  u32 x;
+  u32 y;
+  u32 w;
+  u32 h;
+} Box;
+
+#define BOX(X, Y, W, H) ((Box) { .x = X, .y = Y, .w = W, .h = H })
+
+typedef struct Element {
+  struct Element* items; // children
+  u32 count;
+  u32 size;
+
+  Box box;
+  u32 grid_w;
+  u32 grid_h;
+  Element_type type;
+  element_callback callback;
+  u8 render; // render this element?
+  u8 focus; // is the element in focus?
+} Element;
+
+typedef struct Ui_state {
+  Element root;
+} Ui_state;
+
 typedef struct Termgui {
   i32 tty;
   struct termios term_copy;
@@ -167,7 +211,7 @@ typedef struct Termgui {
   u32 height;
   u32 size; // width * height
   Cell cells[MAX_CELL_COUNT];
-  i8 buffer[MAX_BUFFER_SIZE];
+  char buffer[MAX_BUFFER_SIZE];
   i32 cursor_x;
   i32 cursor_y;
   i32 render_event;
@@ -176,7 +220,8 @@ typedef struct Termgui {
   Result status;
   i32 fd; // fd for logging
   i32 input_event;
-  i8 input_code;
+  char input_code;
+  Ui_state ui;
 } Termgui;
 
 static Termgui term_gui = {0};
@@ -185,8 +230,8 @@ static Termgui term_gui = {0};
 TERMGUI_API Result tg_init();
 TERMGUI_API Result tg_update();
 TERMGUI_API Result tg_render();
-TERMGUI_API i32 tg_input(i8* input);
-TERMGUI_API void tg_box(u32 x_pos, u32 y_pos, u32 w, u32 h, char* title);
+TERMGUI_API i32 tg_input(char* input);
+TERMGUI_API void tg_box(Box box, char* title);
 TERMGUI_API u32 tg_width();
 TERMGUI_API u32 tg_height();
 TERMGUI_API void tg_cursor_move(i32 delta_x, i32 delta_y);
@@ -196,18 +241,21 @@ TERMGUI_API char* tg_err_string();
 TERMGUI_API void tg_print_error();
 TERMGUI_API void tg_free();
 
-static i8 utf8_decode_byte(i8 byte, u32* size);
+TERMGUI_API Result tg_grid_init(Element* e, u32 grid_w, u32 grid_h, u8 render);
+TERMGUI_API Element* tg_attach_element(Element* target, Element* e);
+
+static u8 utf8_decode_byte(u8 byte, u32* size);
 
 static void tg_cells_init(Termgui* tg, Cell* cell);
 static void tg_cell_init(Cell* cell);
-static void tg_cell_init_ascii(Cell* cell, i8 ascii);
+static void tg_cell_init_ascii(Cell* cell, char ascii);
 
 static i32 tg_handle_input(Termgui* tg);
 static void tg_prepare_frame(Termgui* tg);
 static void tg_plot(Termgui* tg, u32 x, u32 y, Item item);
 static void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell);
-static void tg_render_box(Termgui* tg, u32 x_pox, u32 y_pos, u32 w, u32 h);
-static void tg_render_box_with_title(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h, char* title);
+static void tg_render_box(Termgui* tg, Box box);
+static void tg_render_box_with_title(Termgui* tg, Box box, char* title);
 static void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length);
 static void tg_render_horizontal_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length);
 static void tg_render_vertical_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length);
@@ -231,6 +279,15 @@ static void tg_queue_sig_event(Termgui* tg, Signal_event event);
 static void tg_handle_sig_events(Termgui* tg);
 static void tg_sig_event_winch(Termgui* tg);
 static void tg_sig_event_int(Termgui* tg);
+
+static void ui_state_init(Termgui* tg);
+static void ui_element_init(Element* e);
+static void ui_update_elements(Termgui* tg, Element* e);
+static void ui_update(Termgui* tg);
+static void ui_render_elements(Termgui* tg, Element* e);
+static void ui_render(Termgui* tg);
+static void ui_elements_free(Element* e);
+static void ui_state_free(Termgui* tg);
 
 typedef void (*signal_callback)(Termgui*);
 
@@ -261,6 +318,7 @@ Result tg_init() {
     tg->fd = open(log_file_name, O_CREAT | O_TRUNC | O_WRONLY, 0662);
     tg->input_event = 0;
     tg->input_code = 0;
+    ui_state_init(tg);
 
     signal(SIGWINCH, sigwinch);
     signal(SIGINT, sigint);
@@ -283,12 +341,14 @@ Result tg_update() {
   if (!Ok(tg->status)) {
     return tg->status;
   }
+  ui_update(tg);
   return tg->status;
 }
 
 Result tg_render() {
   Termgui* tg = &term_gui;
   if (tg->render_event) {
+    ui_render(tg);
     tg_term_clear(tg);
     // 1) decode each cell
     // 2) write to buffer
@@ -325,7 +385,7 @@ Result tg_render() {
   return tg->status;
 }
 
-i32 tg_input(i8* input) {
+i32 tg_input(char* input) {
   Termgui* tg = &term_gui;
   i32 input_event = tg->input_event;
   if (input && input_event) {
@@ -334,13 +394,13 @@ i32 tg_input(i8* input) {
   return input_event;
 }
 
-void tg_box(u32 x_pos, u32 y_pos, u32 w, u32 h, char* title) {
+void tg_box(Box box, char* title) {
   Termgui* tg = &term_gui;
   if (title) {
-    tg_render_box_with_title(tg, x_pos, y_pos, w, h, title);
+    tg_render_box_with_title(tg, box, title);
     return;
   }
-  tg_render_box(tg, x_pos, y_pos, w, h);
+  tg_render_box(tg, box);
 }
 
 u32 tg_width() {
@@ -391,31 +451,34 @@ void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell) {
   memcpy(&tg->cells[y * tg->width + x], cell, sizeof(Cell));
 }
 
-// TODO(lucas): wrap to border (to terminal border and user defined border)
-void tg_render_box(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h) {
-  x_pos = CLAMP(x_pos, 0, tg->width - 1);
-  y_pos = CLAMP(y_pos, 0, tg->height - 1);
-  w = CLAMP(w, 0, w);
-  h = CLAMP(h, 0, h);
+void tg_render_box(Termgui* tg, Box box) {
+  box.x = CLAMP(box.x, 0, tg->width - 1);
+  box.y = CLAMP(box.y, 0, tg->height - 1);
+  box.w = CLAMP(box.w, 0, tg->width - box.x);
+  box.h = CLAMP(box.h, 0, tg->height - box.y);
 
-  for (u32 y = 1; y < h - 1; ++y) {
-    tg_plot_cell(tg, x_pos, y_pos + y, &border_cell_vertical);
-    tg_plot_cell(tg, x_pos + w - 1, y_pos + y, &border_cell_vertical);
+  if (!box.w || !box.h) {
+    return;
   }
-  for (u32 x = 1; x < w - 1; ++x) {
-    tg_plot_cell(tg, x_pos + x, y_pos, &border_cell_horizontal);
-    tg_plot_cell(tg, x_pos + x, y_pos + h - 1, &border_cell_horizontal);
+
+  for (u32 y = 1; y < box.h - 1; ++y) {
+    tg_plot_cell(tg, box.x, box.y + y, &border_cell_vertical);
+    tg_plot_cell(tg, box.x + box.w - 1, box.y + y, &border_cell_vertical);
   }
-  tg_plot_cell(tg, x_pos, y_pos, &border_cell_corners[BORDER_CELL_TOP_LEFT]);
-  tg_plot_cell(tg, x_pos + w - 1, y_pos, &border_cell_corners[BORDER_CELL_TOP_RIGHT]);
-  tg_plot_cell(tg, x_pos, y_pos + h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_LEFT]);
-  tg_plot_cell(tg, x_pos + w - 1, y_pos + h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_RIGHT]);
+  for (u32 x = 1; x < box.w - 1; ++x) {
+    tg_plot_cell(tg, box.x + x, box.y, &border_cell_horizontal);
+    tg_plot_cell(tg, box.x + x, box.y + box.h - 1, &border_cell_horizontal);
+  }
+  tg_plot_cell(tg, box.x, box.y, &border_cell_corners[BORDER_CELL_TOP_LEFT]);
+  tg_plot_cell(tg, box.x + box.w - 1, box.y, &border_cell_corners[BORDER_CELL_TOP_RIGHT]);
+  tg_plot_cell(tg, box.x, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_LEFT]);
+  tg_plot_cell(tg, box.x + box.w - 1, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_RIGHT]);
 }
 
-void tg_render_box_with_title(Termgui* tg, u32 x_pos, u32 y_pos, u32 w, u32 h, char* title) {
-  tg_render_box(tg, x_pos, y_pos, w, h);
-  tg_render_horizontal_line(tg, x_pos, y_pos + 2, w);
-  tg_render_text(tg, x_pos + 1, y_pos + 1, title, w - 2);
+void tg_render_box_with_title(Termgui* tg, Box box, char* title) {
+  tg_render_box(tg, box);
+  tg_render_horizontal_line(tg, box.x, box.y + 2, box.w);
+  tg_render_text(tg, box.x + 1, box.y + 1, title, box.w - 2);
 }
 
 void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length) {
@@ -475,10 +538,10 @@ void tg_print_error() {
 }
 
 // https://git.suckless.org/st/
-i8 utf8_decode_byte(i8 byte, u32* size) {
+u8 utf8_decode_byte(u8 byte, u32* size) {
   for (*size = 0; *size < LENGTH(utf8_mask); ++(*size)) {
-    if (((u8)byte & utf8_mask[*size]) == utf8_byte[*size]) {
-      return (u8)byte & ~utf8_mask[*size];
+    if ((byte & utf8_mask[*size]) == utf8_byte[*size]) {
+      return byte & ~utf8_mask[*size];
     }
   }
   return 0;
@@ -495,7 +558,7 @@ void tg_cell_init(Cell* cell) {
   cell->fg = COLOR_NONE;
 }
 
-void tg_cell_init_ascii(Cell* cell, i8 ascii) {
+void tg_cell_init_ascii(Cell* cell, char ascii) {
   tg_cell_init(cell);
   cell->code[0] = ascii;
 }
@@ -504,6 +567,28 @@ void tg_free() {
   Termgui* tg = &term_gui;
   tcsetattr(tg->tty, TCSANOW, &tg->term_copy); // reset tty state
   close(tg->fd);
+  ui_state_free(tg);
+}
+
+Result tg_grid_init(Element* e, u32 grid_w, u32 grid_h, u8 render) {
+  Termgui* tg = &term_gui;
+  ui_element_init(e);
+  e->grid_w = grid_w;
+  e->grid_h = grid_h;
+  e->type = ELEM_GRID;
+  e->render = 1;
+  return NoError;
+}
+
+Element* tg_attach_element(Element* target, Element* e) {
+  Termgui* tg = &term_gui;
+  // if no target was specified, use the root
+  if (!target) {
+    target = &tg->ui.root;
+  }
+  u32 index = target->count;
+  list_push(target, *e);
+  return &target->items[index];
 }
 
 void tg_cursor_update(Termgui* tg) {
@@ -520,7 +605,7 @@ void tg_term_fetch_size(Termgui* tg) {
 }
 
 void tg_term_clear(Termgui* tg) {
-  const i8 clear_code[] = { 27, 91, 50, 74, 27, 91, 72 };
+  const u8 clear_code[] = { 27, 91, 50, 74, 27, 91, 72 };
   i32 write_size = write(tg->tty, &clear_code[0], sizeof(clear_code));
   (void)write_size;
 }
@@ -579,6 +664,108 @@ void tg_sig_event_winch(Termgui* tg) {
 
 void tg_sig_event_int(Termgui* tg) {
   tg->status = Done;
+}
+
+void ui_state_init(Termgui* tg) {
+  Element* root = &tg->ui.root;
+  ui_element_init(&tg->ui.root);
+  root->type = ELEM_CONTAINER;
+  root->render = 0;
+  root->focus = 1;
+}
+
+void ui_element_init(Element* e) {
+  e->items = NULL;
+  e->count = 0;
+  e->size = 0;
+
+  e->box = BOX(0, 0, 0, 0);
+  e->grid_w = 0;
+  e->grid_h = 0;
+  e->type = ELEM_NONE;
+  e->callback = NULL;
+  e->render = 1;
+  e->focus = 0;
+}
+
+void ui_update_elements(Termgui* tg, Element* e) {
+  if (!e) {
+    return;
+  }
+  for (u32 i = 0; i < e->count; ++i) {
+    Element* item = &e->items[i];
+    switch (e->type) {
+      case ELEM_CONTAINER: {
+        const u32 padding = 0;
+        const Box outer_box = e->box;
+        item->box = BOX(
+          outer_box.x + padding,
+          outer_box.y + padding,
+          outer_box.w - 2 * padding,
+          outer_box.h - 2 * padding
+        );
+        break;
+      }
+      case ELEM_GRID: {
+        const u32 padding = 0;
+        const Box pbox = e->box; // parent box
+        item->box = BOX(
+          pbox.x + floorf((f32)pbox.w/e->count * i) + padding,
+          pbox.y + padding,
+          floorf((f32)pbox.w/e->count) - 2 * padding,
+          pbox.h - 2 * padding
+        );
+        dprintf(tg->fd, "Box {%d, %d, %d, %d}\n",
+          item->box.x,
+          item->box.y,
+          item->box.w,
+          item->box.h
+        );
+        break;
+      }
+      default:
+        break;
+    }
+    ui_update_elements(tg, item);
+  }
+}
+
+void ui_update(Termgui* tg) {
+  Element* root = &tg->ui.root;
+  root->box = BOX(0, 0, tg->width, tg->height);
+  ui_update_elements(tg, root);
+}
+
+void ui_render_elements(Termgui* tg, Element* e) {
+  if (!e) {
+    return;
+  }
+  if (e->render) {
+    tg_render_box(tg, e->box);
+  }
+  for (u32 i = 0; i < e->count; ++i) {
+    Element* item = &e->items[i];
+    ui_render_elements(tg, item);
+  }
+}
+
+void ui_render(Termgui* tg) {
+  Element* root = &tg->ui.root;
+  ui_render_elements(tg, root);
+}
+
+void ui_elements_free(Element* e) {
+  if (!e) {
+    return;
+  }
+  for (u32 i = 0; i < e->count; ++i) {
+    ui_elements_free(&e->items[i]);
+  }
+  list_free(e);
+}
+
+void ui_state_free(Termgui* tg) {
+  ui_elements_free(&tg->ui.root);
 }
 
 #endif // _TERMGUI_H

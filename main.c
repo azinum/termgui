@@ -2,19 +2,26 @@
 
 #include "termgui.h"
 
-int main(int argc, char** argv) {
+i32 main(i32 argc, char** argv) {
   if (Ok(tg_init())) {
+    Element grid;
+    tg_grid_init(&grid, 0, 0, 1);
+    grid.render = 0;
+
+    Element* g = tg_attach_element(NULL, &grid);
+    grid.render = 1;
+    tg_attach_element(g, &grid);
+    tg_attach_element(g, &grid);
+    tg_attach_element(g, &grid);
+    tg_attach_element(g, &grid);
+
     while (Ok(tg_update())) {
-      i8 input = 0;
+      char input = 0;
       if (tg_input(&input)) {
         if (input == 'c') {
           tg_colors_toggle();
         }
       }
-      tg_box(0, 0, tg_width(), tg_height(), "termgui example");
-      tg_box(1, 3, 48, 10, "here is a title");
-      tg_box(50, 3, 32, 10, "here is another title");
-      tg_box(1, 13, 24, 12, "yet another title");
       tg_render();
     }
     tg_free();

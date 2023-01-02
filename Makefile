@@ -1,7 +1,7 @@
 # Makefile
 
 CC=gcc
-C_FLAGS=-pedantic -ggdb
+C_FLAGS=-pedantic -ggdb -lm
 
 all: main
 
