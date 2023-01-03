@@ -13,6 +13,7 @@ int main(int argc, char** argv) {
   if (Ok(tg_init())) {
     Element grid;
     tg_grid_init(&grid, cols, 0);
+    grid.focusable = 0;
     Element* g = tg_attach_element(NULL, &grid);
     Element empty;
     tg_empty_init(&empty);

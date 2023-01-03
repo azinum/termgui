@@ -5,6 +5,8 @@
 // - validate utf-8
 // - configurable colors for elements
 // - element padding
+// - render n*n grid with m items where m<n*n
+// - fix terminal flickering
 
 #ifndef _TERMGUI_H
 #define _TERMGUI_H
@@ -20,7 +22,7 @@
 #include <signal.h>
 #include <assert.h>
 #include <locale.h> // setlocale
-#include <math.h> // floorf
+#include <math.h> // floorf, ceilf
 
 #define TERMGUI_API static
 #define Ok(err) (err == NoError)
@@ -104,7 +106,12 @@ typedef enum Color {
 } Color;
 
 static Color color_default = COLOR_NONE;
-static Color color_focus = COLOR_RED;
+static Color color_focus = COLOR_BOLD_PURPLE;
+static Color color_text = COLOR_NONE;
+
+static char KEY_EXIT         = 4; // ctrl+d
+static char KEY_SELECT       = 10; // enter
+static char KEY_SWITCH_FOCUS = '\t';
 
 static const char* color_code_str[MAX_COLOR] = {
   "\033[0;00m",
@@ -173,6 +180,7 @@ typedef enum Element_type {
   ELEM_NONE = 0,
   ELEM_CONTAINER,
   ELEM_GRID,
+  ELEM_TEXT,
 
   MAX_ELEMENT_TYPE
 } Element_type;
@@ -181,6 +189,7 @@ const char* element_type_str[MAX_ELEMENT_TYPE] = {
   "none",
   "container",
   "grid",
+  "text",
 };
 
 typedef enum Focus_state {
@@ -191,7 +200,8 @@ typedef enum Focus_state {
 
 const char* bool_str[] = { "false", "true" };
 
-typedef void (*element_callback)(void* userdata);
+struct Element;
+typedef void (*element_callback)(struct Element* element, void* userdata);
 
 typedef struct Box {
   u32 x;
@@ -206,6 +216,9 @@ typedef union Element_data {
   struct {
     u32 max_cols;
   } grid;
+  struct {
+    char* string;
+  } text;
 } Element_data;
 
 typedef struct Element {
@@ -217,8 +230,11 @@ typedef struct Element {
   Box box;
   Element_type type;
   element_callback callback;
+  void* userdata;
   Element_data data;
+  u32 padding;
   u8 render; // render this element?
+  u8 border;
   u8 focus; // is the element in focus?
   u8 focusable; // can this element be focused?
 } Element;
@@ -257,7 +273,6 @@ TERMGUI_API Result tg_init();
 TERMGUI_API Result tg_update();
 TERMGUI_API Result tg_render();
 TERMGUI_API i32 tg_input(char* input);
-TERMGUI_API void tg_box(Box box, char* title);
 TERMGUI_API u32 tg_width();
 TERMGUI_API u32 tg_height();
 TERMGUI_API void tg_cursor_move(i32 delta_x, i32 delta_y);
@@ -267,8 +282,10 @@ TERMGUI_API char* tg_err_string();
 TERMGUI_API void tg_print_error();
 TERMGUI_API void tg_free();
 
-TERMGUI_API Result tg_grid_init(Element* e, u32 max_cols, u8 render);
 TERMGUI_API Result tg_empty_init(Element* e);
+TERMGUI_API Result tg_container_init(Element* e, u8 render);
+TERMGUI_API Result tg_grid_init(Element* e, u32 max_cols, u8 render);
+TERMGUI_API Result tg_text_init(Element* e, char* text);
 TERMGUI_API Element* tg_attach_element(Element* target, Element* e);
 
 static u8 utf8_decode_byte(u8 byte, u32* size);
@@ -283,8 +300,7 @@ static void tg_plot(Termgui* tg, u32 x, u32 y, Item item);
 static void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell);
 static void tg_plot_cell_color(Termgui* tg, u32 x, u32 y, Cell* cell, Color fg_color);
 static void tg_render_box(Termgui* tg, Box box, Color fg_color);
-static void tg_render_box_with_title(Termgui* tg, Box box, char* title);
-static void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length);
+static void tg_render_text_ascii(Termgui* tg, Box box, char* text);
 static void tg_render_horizontal_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length);
 static void tg_render_vertical_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length);
 static void tg_cursor_update(Termgui* tg);
@@ -360,7 +376,6 @@ Result tg_init() {
     if (!setlocale(LC_CTYPE, "")) {
       dprintf(tg->fd, "[warning]: no locale support\n");
     }
-
   }
   return tg->status;
 }
@@ -427,15 +442,6 @@ i32 tg_input(char* input) {
   return input_event;
 }
 
-void tg_box(Box box, char* title) {
-  Termgui* tg = &term_gui;
-  if (title) {
-    tg_render_box_with_title(tg, box, title);
-    return;
-  }
-  tg_render_box(tg, box, color_default);
-}
-
 u32 tg_width() {
   return term_gui.width;
 }
@@ -448,17 +454,11 @@ i32 tg_handle_input(Termgui* tg) {
   char input = 0;
   i32 read_size = read(tg->tty, &input, 1);
   if (read_size > 0) {
-    switch (input) {
-      case 4: { // ^D
-        tg->status = Done;
-        break;
-      }
-      case '\t': {
-        tg->switch_focus = FOCUS;
-        break;
-      }
-      default:
-        break;
+    if (input == KEY_EXIT) {
+      tg->status = Done;
+    }
+    else if (input == KEY_SWITCH_FOCUS) {
+      tg->switch_focus = FOCUS;
     }
     tg->render_event = 1;
     tg->input_event = 1;
@@ -518,23 +518,38 @@ void tg_render_box(Termgui* tg, Box box, Color fg_color) {
   tg_plot_cell_color(tg, box.x + box.w - 1, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_RIGHT], fg_color);
 }
 
-void tg_render_box_with_title(Termgui* tg, Box box, char* title) {
-  tg_render_box(tg, box, color_default);
-  tg_render_horizontal_line(tg, box.x, box.y + 2, box.w);
-  tg_render_text(tg, box.x + 1, box.y + 1, title, box.w - 2);
-}
-
-void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length) {
-  for (u32 i = 0; i < length; ++i) {
-    Item item = text[i];
-    if (item == 0) {
+void tg_render_text_ascii(Termgui* tg, Box box, char* text) {
+  if (!text) {
+    return;
+  }
+  ++box.x;
+  ++box.y;
+  box.w -= 2;
+  box.h -= 2;
+  u32 x = 0;
+  u32 y = 0;
+  for (;;) {
+    char ch = *text++;
+    if (ch == 0) {
+      break;
+    }
+    if (ch == '\n') {
+      x = 0;
+      ++y;
+      continue;
+    }
+    if (x >= box.w) {
+      x = 0;
+      ++y;
+    }
+    if (y >= box.h) {
       break;
     }
     Cell cell;
-    tg_cell_init_ascii(&cell, item);
-    cell.fg = COLOR_BOLD_RED;
-    tg_plot_cell(tg, x_pos, y_pos, &cell);
-    x_pos++;
+    tg_cell_init_ascii(&cell, ch);
+    cell.fg = color_text;
+    tg_plot_cell(tg, box.x + x, box.y + y, &cell);
+    ++x;
   }
 }
 
@@ -614,6 +629,21 @@ void tg_free() {
   ui_state_free(tg);
 }
 
+Result tg_empty_init(Element* e) {
+  Termgui* tg = &term_gui;
+  ui_element_init(tg, e);
+  e->render = 0;
+  return NoError;
+}
+
+Result tg_container_init(Element* e, u8 render) {
+  Termgui* tg = &term_gui;
+  ui_element_init(tg, e);
+  e->type = ELEM_CONTAINER;
+  e->render = render;
+  return NoError;
+}
+
 Result tg_grid_init(Element* e, u32 max_cols, u8 render) {
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
@@ -623,11 +653,11 @@ Result tg_grid_init(Element* e, u32 max_cols, u8 render) {
   return NoError;
 }
 
-Result tg_empty_init(Element* e) {
+Result tg_text_init(Element* e, char* text) {
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
-  e->render = 0;
-  return NoError;
+  e->data.text.string = text;
+  e->type = ELEM_TEXT;
 }
 
 Element* tg_attach_element(Element* target, Element* e) {
@@ -637,6 +667,7 @@ Element* tg_attach_element(Element* target, Element* e) {
     target = &tg->ui.root;
   }
   u32 index = target->count;
+  e->id = tg->ui.id_counter++;
   list_push(target, *e);
   return &target->items[index];
 }
@@ -717,7 +748,7 @@ void tg_sig_event_int(Termgui* tg) {
 
 void ui_state_init(Termgui* tg) {
   Element* root = &tg->ui.root;
-  tg->ui.id_counter = 0;
+  tg->ui.id_counter = 1;
   ui_element_init(tg, &tg->ui.root);
   root->type = ELEM_CONTAINER;
   root->render = 0;
@@ -729,12 +760,15 @@ void ui_element_init(Termgui* tg, Element* e) {
   e->count = 0;
   e->size = 0;
 
-  e->id = tg->ui.id_counter++;
+  e->id = 0;
   e->box = BOX(0, 0, 0, 0);
   e->type = ELEM_NONE;
   e->callback = NULL;
+  e->userdata = NULL;
   memset(&e->data, 0, sizeof(Element_data));
+  e->padding = 0;
   e->render = 1;
+  e->border = 1;
   e->focus = 0;
   e->focusable = 1;
 }
@@ -751,17 +785,21 @@ void ui_update_elements(Termgui* tg, Element* e) {
     e->focus = 0;
     tg->switch_focus = FOCUS_SWITCH;
   }
+  if (tg->input_code == KEY_SELECT && e->focus) {
+    if (e->callback) {
+      e->callback(e, e->userdata);
+    }
+  }
   for (u32 i = 0; i < e->count; ++i) {
     Element* item = &e->items[i];
     switch (e->type) {
       case ELEM_CONTAINER: {
-        const u32 padding = 0;
         const Box outer_box = e->box;
         item->box = BOX(
-          outer_box.x + padding,
-          outer_box.y + padding,
-          outer_box.w - 2 * padding,
-          outer_box.h - 2 * padding
+          outer_box.x + e->padding,
+          outer_box.y + e->padding,
+          outer_box.w - 2 * e->padding,
+          outer_box.h - 2 * e->padding
         );
         break;
       }
@@ -770,24 +808,24 @@ void ui_update_elements(Termgui* tg, Element* e) {
         Box pbox = e->box; // parent box
         if (e->data.grid.max_cols == 0) {
           item->box = BOX(
-            pbox.x + floorf((f32)pbox.w/e->count * i) + padding,
-            pbox.y + padding,
-            ceilf((f32)pbox.w/e->count) - 2 * padding,
-            pbox.h - 2 * padding
+            pbox.x + floorf((f32)pbox.w/e->count * i) + e->padding,
+            pbox.y + e->padding,
+            ceilf((f32)pbox.w/e->count) - 2 * e->padding,
+            pbox.h - 2 * e->padding
           );
         }
         else {
           u32 cols = e->data.grid.max_cols;
           u32 rows = e->count / e->data.grid.max_cols;
-          u32 w = ceilf((f32)pbox.w / cols) - 2 * padding;
-          u32 h = ceilf((f32)pbox.h / rows) - 2 * padding;
+          u32 w = ceilf((f32)pbox.w / cols);
+          u32 h = ceilf((f32)pbox.h / rows);
           u32 x = i % cols;
           u32 y = (u32)floorf((f32)i / cols);
           item->box = BOX(
-            pbox.x + x * w + padding,
-            pbox.y + y * h + padding,
-            w,
-            h
+            pbox.x + x * w + e->padding,
+            pbox.y + y * h + e->padding,
+            w - 2 * e->padding,
+            h - 2 * e->padding
           );
         }
         break;
@@ -814,7 +852,17 @@ void ui_render_elements(Termgui* tg, Element* e) {
     if (e->focus) {
       fg_color = color_focus;
     }
-    tg_render_box(tg, e->box, fg_color);
+    switch (e->type) {
+      case ELEM_TEXT: {
+        tg_render_text_ascii(tg, e->box, e->data.text.string);
+        break;
+      }
+      default:
+        break;
+    }
+    if (e->border) {
+      tg_render_box(tg, e->box, fg_color);
+    }
   }
   for (u32 i = 0; i < e->count; ++i) {
     Element* item = &e->items[i];
