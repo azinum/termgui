@@ -144,9 +144,6 @@ typedef struct Cell {
 
 typedef char Item;
 
-static Cell border_cell_vertical =   { .code = { 0xe2, 0x94, 0x82, 0x00 }, .fg = COLOR_NONE };
-static Cell border_cell_horizontal = { .code = { 0xe2, 0x94, 0x80, 0x00 }, .fg = COLOR_NONE };
-
 enum Border_cell_orientation {
   BORDER_CELL_TOP_LEFT = 0,
   BORDER_CELL_TOP_RIGHT,
@@ -158,10 +155,13 @@ enum Border_cell_orientation {
   BORDER_CELL_CONN_TOP,
   BORDER_CELL_CONN_BOTTOM,
 
+  BORDER_CELL_VERTICAL,
+  BORDER_CELL_HORIZONTAL,
+
   MAX_BORDER_CELL
 };
 
-static Cell border_cell_corners[MAX_BORDER_CELL] = {
+static Cell border_cells[MAX_BORDER_CELL] = {
   { .code = {	0xe2, 0x95, 0xad, 0x00 }, .fg = COLOR_NONE }, // top left
   { .code = {	0xe2, 0x95, 0xae, 0x00 }, .fg = COLOR_NONE }, // top right
   { .code = { 0xe2, 0x95, 0xb0, 0x00 }, .fg = COLOR_NONE }, // bottom left
@@ -171,6 +171,9 @@ static Cell border_cell_corners[MAX_BORDER_CELL] = {
   { .code = { 0xe2, 0x94, 0xa4, 0x00 }, .fg = COLOR_NONE }, // right connection
   { .code = { 0xe2, 0x94, 0xac, 0x00 }, .fg = COLOR_NONE }, // top connection
   { .code = { 0xe2, 0x94, 0xb4, 0x00 }, .fg = COLOR_NONE }, // bottom connection
+
+  { .code = { 0xe2, 0x94, 0x82, 0x00 }, .fg = COLOR_NONE }, // vertical
+  { .code = { 0xe2, 0x94, 0x80, 0x00 }, .fg = COLOR_NONE }, // horizontal
 };
 
 typedef enum Result { NoError, Error, Done } Result;
@@ -505,17 +508,17 @@ void tg_render_box(Termgui* tg, Box box, Color fg_color) {
   }
 
   for (u32 y = 1; y < box.h - 1; ++y) {
-    tg_plot_cell_color(tg, box.x, box.y + y, &border_cell_vertical, fg_color);
-    tg_plot_cell_color(tg, box.x + box.w - 1, box.y + y, &border_cell_vertical, fg_color);
+    tg_plot_cell_color(tg, box.x, box.y + y, &border_cells[BORDER_CELL_VERTICAL], fg_color);
+    tg_plot_cell_color(tg, box.x + box.w - 1, box.y + y, &border_cells[BORDER_CELL_VERTICAL], fg_color);
   }
   for (u32 x = 1; x < box.w - 1; ++x) {
-    tg_plot_cell_color(tg, box.x + x, box.y, &border_cell_horizontal, fg_color);
-    tg_plot_cell_color(tg, box.x + x, box.y + box.h - 1, &border_cell_horizontal, fg_color);
+    tg_plot_cell_color(tg, box.x + x, box.y, &border_cells[BORDER_CELL_HORIZONTAL], fg_color);
+    tg_plot_cell_color(tg, box.x + x, box.y + box.h - 1, &border_cells[BORDER_CELL_HORIZONTAL], fg_color);
   }
-  tg_plot_cell_color(tg, box.x, box.y, &border_cell_corners[BORDER_CELL_TOP_LEFT], fg_color);
-  tg_plot_cell_color(tg, box.x + box.w - 1, box.y, &border_cell_corners[BORDER_CELL_TOP_RIGHT], fg_color);
-  tg_plot_cell_color(tg, box.x, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_LEFT], fg_color);
-  tg_plot_cell_color(tg, box.x + box.w - 1, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_RIGHT], fg_color);
+  tg_plot_cell_color(tg, box.x, box.y, &border_cells[BORDER_CELL_TOP_LEFT], fg_color);
+  tg_plot_cell_color(tg, box.x + box.w - 1, box.y, &border_cells[BORDER_CELL_TOP_RIGHT], fg_color);
+  tg_plot_cell_color(tg, box.x, box.y + box.h - 1, &border_cells[BORDER_CELL_BOTTOM_LEFT], fg_color);
+  tg_plot_cell_color(tg, box.x + box.w - 1, box.y + box.h - 1, &border_cells[BORDER_CELL_BOTTOM_RIGHT], fg_color);
 }
 
 void tg_render_text_ascii(Termgui* tg, Box box, char* text) {
@@ -556,11 +559,11 @@ void tg_render_text_ascii(Termgui* tg, Box box, char* text) {
 void tg_render_horizontal_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length) {
   x_pos = CLAMP(x_pos, 0, tg->width - 1);
   y_pos = CLAMP(y_pos, 0, tg->height - 1);
-  tg_plot_cell(tg, x_pos, y_pos, &border_cell_corners[BORDER_CELL_CONN_LEFT]);
-  tg_plot_cell(tg, x_pos + length - 1, y_pos, &border_cell_corners[BORDER_CELL_CONN_RIGHT]);
+  tg_plot_cell(tg, x_pos, y_pos, &border_cells[BORDER_CELL_CONN_LEFT]);
+  tg_plot_cell(tg, x_pos + length - 1, y_pos, &border_cells[BORDER_CELL_CONN_RIGHT]);
   if (length > 2) {
     for (u32 i = 1; i < length - 1; ++i) {
-      tg_plot_cell(tg, x_pos + i, y_pos, &border_cell_horizontal);
+      tg_plot_cell(tg, x_pos + i, y_pos, &border_cells[BORDER_CELL_HORIZONTAL]);
     }
   }
 }
