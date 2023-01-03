@@ -4,6 +4,7 @@
 // - limit the window size
 // - validate utf-8
 // - configurable colors for elements
+// - element padding
 
 #ifndef _TERMGUI_H
 #define _TERMGUI_H
@@ -736,13 +737,29 @@ void ui_update_elements(Termgui* tg, Element* e) {
       }
       case ELEM_GRID: {
         const u32 padding = 0;
-        const Box pbox = e->box; // parent box
-        item->box = BOX(
-          pbox.x + floorf((f32)pbox.w/e->count * i) + padding,
-          pbox.y + padding,
-          floorf((f32)pbox.w/e->count) - 2 * padding,
-          pbox.h - 2 * padding
-        );
+        Box pbox = e->box; // parent box
+        if (e->data.grid.max_cols == 0) {
+          item->box = BOX(
+            pbox.x + floorf((f32)pbox.w/e->count * i) + padding,
+            pbox.y + padding,
+            ceilf((f32)pbox.w/e->count) - 2 * padding,
+            pbox.h - 2 * padding
+          );
+        }
+        else {
+          u32 cols = e->data.grid.max_cols;
+          u32 rows = e->count / e->data.grid.max_cols;
+          u32 w = ceilf((f32)pbox.w / cols) - 2 * padding;
+          u32 h = ceilf((f32)pbox.h / rows) - 2 * padding;
+          u32 x = i % cols;
+          u32 y = (u32)floorf((f32)i / cols);
+          item->box = BOX(
+            pbox.x + x * w + padding,
+            pbox.y + y * h + padding,
+            w,
+            h
+          );
+        }
         break;
       }
       default:
