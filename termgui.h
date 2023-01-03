@@ -104,7 +104,7 @@ typedef enum Color {
 } Color;
 
 static Color color_default = COLOR_NONE;
-static Color color_focus = COLOR_BOLD_PURPLE;
+static Color color_focus = COLOR_RED;
 
 static const char* color_code_str[MAX_COLOR] = {
   "\033[0;00m",
@@ -183,6 +183,12 @@ const char* element_type_str[MAX_ELEMENT_TYPE] = {
   "grid",
 };
 
+typedef enum Focus_state {
+  FOCUS_NONE = 0,
+  FOCUS,
+  FOCUS_SWITCH,
+} Focus_state;
+
 const char* bool_str[] = { "false", "true" };
 
 typedef void (*element_callback)(void* userdata);
@@ -214,6 +220,7 @@ typedef struct Element {
   Element_data data;
   u8 render; // render this element?
   u8 focus; // is the element in focus?
+  u8 focusable; // can this element be focused?
 } Element;
 
 typedef struct Ui_state {
@@ -233,7 +240,7 @@ typedef struct Termgui {
   i32 cursor_x;
   i32 cursor_y;
   i32 render_event;
-  i32 switch_focus;
+  Focus_state switch_focus;
   i32 use_colors;
   i32 initialized;
   Result status;
@@ -274,7 +281,8 @@ static i32 tg_handle_input(Termgui* tg);
 static void tg_prepare_frame(Termgui* tg);
 static void tg_plot(Termgui* tg, u32 x, u32 y, Item item);
 static void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell);
-static void tg_render_box(Termgui* tg, Box box);
+static void tg_plot_cell_color(Termgui* tg, u32 x, u32 y, Cell* cell, Color fg_color);
+static void tg_render_box(Termgui* tg, Box box, Color fg_color);
 static void tg_render_box_with_title(Termgui* tg, Box box, char* title);
 static void tg_render_text(Termgui* tg, u32 x_pos, u32 y_pos, char* text, u32 length);
 static void tg_render_horizontal_line(Termgui* tg, u32 x_pos, u32 y_pos, u32 length);
@@ -336,7 +344,7 @@ Result tg_init() {
     tg->cursor_x = 0;
     tg->cursor_y = 0;
     tg->render_event = 1;
-    tg->switch_focus = 0;
+    tg->switch_focus = FOCUS_NONE;
     tg->use_colors = 1;
     tg->initialized = 1;
     tg->status = NoError;
@@ -425,7 +433,7 @@ void tg_box(Box box, char* title) {
     tg_render_box_with_title(tg, box, title);
     return;
   }
-  tg_render_box(tg, box);
+  tg_render_box(tg, box, color_default);
 }
 
 u32 tg_width() {
@@ -446,7 +454,7 @@ i32 tg_handle_input(Termgui* tg) {
         break;
       }
       case '\t': {
-        tg->switch_focus = 1;
+        tg->switch_focus = FOCUS;
         break;
       }
       default:
@@ -480,7 +488,13 @@ void tg_plot_cell(Termgui* tg, u32 x, u32 y, Cell* cell) {
   memcpy(&tg->cells[y * tg->width + x], cell, sizeof(Cell));
 }
 
-void tg_render_box(Termgui* tg, Box box) {
+void tg_plot_cell_color(Termgui* tg, u32 x, u32 y, Cell* cell, Color fg_color) {
+  Cell c = *cell;
+  c.fg = fg_color;
+  tg_plot_cell(tg, x, y, &c);
+}
+
+void tg_render_box(Termgui* tg, Box box, Color fg_color) {
   box.x = CLAMP(box.x, 0, tg->width - 1);
   box.y = CLAMP(box.y, 0, tg->height - 1);
   box.w = CLAMP(box.w, 0, tg->width - box.x);
@@ -491,21 +505,21 @@ void tg_render_box(Termgui* tg, Box box) {
   }
 
   for (u32 y = 1; y < box.h - 1; ++y) {
-    tg_plot_cell(tg, box.x, box.y + y, &border_cell_vertical);
-    tg_plot_cell(tg, box.x + box.w - 1, box.y + y, &border_cell_vertical);
+    tg_plot_cell_color(tg, box.x, box.y + y, &border_cell_vertical, fg_color);
+    tg_plot_cell_color(tg, box.x + box.w - 1, box.y + y, &border_cell_vertical, fg_color);
   }
   for (u32 x = 1; x < box.w - 1; ++x) {
-    tg_plot_cell(tg, box.x + x, box.y, &border_cell_horizontal);
-    tg_plot_cell(tg, box.x + x, box.y + box.h - 1, &border_cell_horizontal);
+    tg_plot_cell_color(tg, box.x + x, box.y, &border_cell_horizontal, fg_color);
+    tg_plot_cell_color(tg, box.x + x, box.y + box.h - 1, &border_cell_horizontal, fg_color);
   }
-  tg_plot_cell(tg, box.x, box.y, &border_cell_corners[BORDER_CELL_TOP_LEFT]);
-  tg_plot_cell(tg, box.x + box.w - 1, box.y, &border_cell_corners[BORDER_CELL_TOP_RIGHT]);
-  tg_plot_cell(tg, box.x, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_LEFT]);
-  tg_plot_cell(tg, box.x + box.w - 1, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_RIGHT]);
+  tg_plot_cell_color(tg, box.x, box.y, &border_cell_corners[BORDER_CELL_TOP_LEFT], fg_color);
+  tg_plot_cell_color(tg, box.x + box.w - 1, box.y, &border_cell_corners[BORDER_CELL_TOP_RIGHT], fg_color);
+  tg_plot_cell_color(tg, box.x, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_LEFT], fg_color);
+  tg_plot_cell_color(tg, box.x + box.w - 1, box.y + box.h - 1, &border_cell_corners[BORDER_CELL_BOTTOM_RIGHT], fg_color);
 }
 
 void tg_render_box_with_title(Termgui* tg, Box box, char* title) {
-  tg_render_box(tg, box);
+  tg_render_box(tg, box, color_default);
   tg_render_horizontal_line(tg, box.x, box.y + 2, box.w);
   tg_render_text(tg, box.x + 1, box.y + 1, title, box.w - 2);
 }
@@ -695,7 +709,6 @@ void tg_handle_sig_events(Termgui* tg) {
 
 void tg_sig_event_winch(Termgui* tg) {
   tg_term_fetch_size(tg);
-  dprintf(tg->fd, "width = %d, height = %d\n", tg->width, tg->height);
 }
 
 void tg_sig_event_int(Termgui* tg) {
@@ -723,11 +736,20 @@ void ui_element_init(Termgui* tg, Element* e) {
   memset(&e->data, 0, sizeof(Element_data));
   e->render = 1;
   e->focus = 0;
+  e->focusable = 1;
 }
 
 void ui_update_elements(Termgui* tg, Element* e) {
   if (!e) {
     return;
+  }
+  if (tg->switch_focus == FOCUS_SWITCH && !e->focus && e->focusable) {
+    e->focus = 1;
+    tg->switch_focus = FOCUS_NONE;
+  }
+  if (tg->switch_focus == FOCUS && e->focus && e->focusable) {
+    e->focus = 0;
+    tg->switch_focus = FOCUS_SWITCH;
   }
   for (u32 i = 0; i < e->count; ++i) {
     Element* item = &e->items[i];
@@ -788,7 +810,11 @@ void ui_render_elements(Termgui* tg, Element* e) {
     return;
   }
   if (e->render) {
-    tg_render_box(tg, e->box);
+    Color fg_color = color_default;
+    if (e->focus) {
+      fg_color = color_focus;
+    }
+    tg_render_box(tg, e->box, fg_color);
   }
   for (u32 i = 0; i < e->count; ++i) {
     Element* item = &e->items[i];
