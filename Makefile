@@ -3,11 +3,13 @@
 CC=gcc
 C_FLAGS=-pedantic -ggdb -lm
 
-all: main
+all: main utf8code grid
 
-main: main.c
+main: main.c termgui.h
 	${CC} $< -o $@ ${C_FLAGS}
 utf8code: utf8code.c
 	${CC} $< -o $@ ${C_FLAGS}
- 
-.PHONY: main
+grid: grid.c termgui.h
+	${CC} $< -o $@ ${C_FLAGS}
+
+.PHONY:

@@ -261,6 +261,7 @@ TERMGUI_API void tg_print_error();
 TERMGUI_API void tg_free();
 
 TERMGUI_API Result tg_grid_init(Element* e, u32 max_cols, u8 render);
+TERMGUI_API Result tg_empty_init(Element* e);
 TERMGUI_API Element* tg_attach_element(Element* target, Element* e);
 
 static u8 utf8_decode_byte(u8 byte, u32* size);
@@ -605,6 +606,13 @@ Result tg_grid_init(Element* e, u32 max_cols, u8 render) {
   e->data.grid.max_cols = max_cols;
   e->type = ELEM_GRID;
   e->render = render;
+  return NoError;
+}
+
+Result tg_empty_init(Element* e) {
+  Termgui* tg = &term_gui;
+  ui_element_init(tg, e);
+  e->render = 0;
   return NoError;
 }
 

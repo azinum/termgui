@@ -1,12 +1,16 @@
-// main.c
+// grid.c
 
 #include "termgui.h"
 
-i32 main(i32 argc, char** argv) {
+int main(int argc, char** argv) {
+  if (argc < 3) {
+    printf("Usage; %s <num cols> <num rows>\n", argv[0]);
+    return 0;
+  }
+  i32 cols = atoi(argv[1]);
+  i32 rows = atoi(argv[2]);
+  i32 count = cols * rows;
   if (Ok(tg_init())) {
-    u32 rows = 3;
-    u32 cols = 3;
-    u32 count = rows * cols;
     Element grid;
     tg_grid_init(&grid, cols, 0);
     Element* g = tg_attach_element(NULL, &grid);
@@ -16,13 +20,8 @@ i32 main(i32 argc, char** argv) {
     for (u32 i = 0; i < count; ++i) {
       tg_attach_element(g, &empty);
     }
+
     while (Ok(tg_update())) {
-      char input = 0;
-      if (tg_input(&input)) {
-        if (input == 'c') {
-          tg_colors_toggle();
-        }
-      }
       tg_render();
     }
     tg_free();
