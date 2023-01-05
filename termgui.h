@@ -246,6 +246,7 @@ const char* bool_str[] = { "false", "true" };
 
 struct Element;
 typedef void (*element_callback)(struct Element* element, void* userdata);
+typedef void (*element_input_callback)(struct Element* element, void* userdata, char input);
 
 typedef struct Box {
   u32 x;
@@ -273,8 +274,11 @@ typedef struct Element {
   u32 id;
   Box box;
   Element_type type;
-  element_callback callback;
+
+  element_callback select_callback;
+  element_input_callback input_callback;
   void* userdata;
+
   Element_data data;
   u32 padding;
   u8 render; // render this element?
@@ -813,8 +817,11 @@ void ui_element_init(Termgui* tg, Element* e) {
   e->id = 0;
   e->box = BOX(0, 0, 0, 0);
   e->type = ELEM_NONE;
-  e->callback = NULL;
+
+  e->select_callback = NULL;
+  e->input_callback = NULL;
   e->userdata = NULL;
+
   memset(&e->data, 0, sizeof(Element_data));
   e->padding = 0;
   e->render = 1;
@@ -837,9 +844,14 @@ void ui_update_elements(Termgui* tg, Element* e) {
     tg->switch_focus = FOCUS_SWITCH;
     tg->render_event = 1;
   }
-  if (tg->input_code == KEY_SELECT && e->focus) {
-    if (e->callback) {
-      e->callback(e, e->userdata);
+  if (tg->input_event) {
+    if (tg->input_code == KEY_SELECT && e->focus) {
+      if (e->select_callback) {
+        e->select_callback(e, e->userdata);
+      }
+    }
+    if (e->input_callback) {
+      e->input_callback(e, e->userdata, tg->input_code);
     }
   }
   for (u32 i = 0; i < e->count; ++i) {

@@ -1,17 +1,21 @@
 # Makefile
 
 CC=gcc
-C_FLAGS=-pedantic -lm -O2
+C_FLAGS=-pedantic -lm -O2 -I.
+TARGETS=test utf8code grid edit
 
-all: main utf8code grid edit
+all: ${TARGETS}
 
-main: main.c termgui.h
+test: examples/test.c termgui.h
 	${CC} $< -o $@ ${C_FLAGS}
 utf8code: utf8code.c
 	${CC} $< -o $@ ${C_FLAGS}
-grid: grid.c termgui.h
+grid: examples/grid.c termgui.h
 	${CC} $< -o $@ ${C_FLAGS}
-edit: edit.c termgui.h
+edit: examples/edit.c termgui.h
 	${CC} $< -o $@ ${C_FLAGS}
 
-.PHONY:
+clean:
+	rm ${TARGETS}
+
+.PHONY: clean

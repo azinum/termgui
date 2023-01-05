@@ -1,4 +1,4 @@
-// main.c
+// test.c
 
 #include "termgui.h"
 
@@ -30,7 +30,7 @@ i32 main(i32 argc, char** argv) {
       Element container_element;
       tg_container_init(&container_element, 1);
       container_element.padding = 4;
-      container_element.callback = on_click;
+      container_element.select_callback = on_click;
       container_element.border = 1;
 
       Element* container = tg_attach_element(grid, &container_element);
