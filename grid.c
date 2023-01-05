@@ -2,7 +2,7 @@
 
 #include "termgui.h"
 
-int main(int argc, char** argv) {
+i32 main(i32 argc, char** argv) {
   if (argc < 3) {
     printf("Usage; %s <num cols> <num rows>\n", argv[0]);
     return 0;
@@ -14,6 +14,7 @@ int main(int argc, char** argv) {
     Element grid;
     tg_grid_init(&grid, cols, 0);
     grid.focusable = 0;
+    grid.padding = 1;
     Element* g = tg_attach_element(NULL, &grid);
     Element empty;
     tg_empty_init(&empty);

@@ -7,6 +7,7 @@
 // - element padding
 // - render n*n grid with m items where m<n*n
 // - fix terminal flickering
+// - add ascii only mode for terminals with no utf-8 support
 
 #ifndef _TERMGUI_H
 #define _TERMGUI_H
@@ -27,17 +28,6 @@
 #define TERMGUI_API static
 #define Ok(err) (err == NoError)
 #define Err(message) (err_string = message, term_gui.status = Error, Error)
-#define MIN(x, y) (x < y ? x : y)
-#define MAX(x, y) (x > y ? x : y)
-#define CLAMP(x, x_min, x_max) MIN(MAX(x_min, x), x_max)
-#define UTF8_SIZE (4)
-#define COLOR_CODE_SIZE 7
-#define MAX_CELL_COUNT (300 * 80)
-#define MAX_BUFFER_SIZE (UTF8_SIZE * MAX_CELL_COUNT * COLOR_CODE_SIZE)
-#define LENGTH(ARR) (sizeof(ARR) / sizeof(ARR[0]))
-#define IN_BOUNDS(x, a, b) ((x >= a) && (x <= b))
-
-#define INIT_ITEMS_SIZE 32
 
 #ifdef CUSTOM_ALLOCATOR
   #define MALLOC
@@ -49,6 +39,18 @@
   #define REALLOC realloc
 #endif
 
+// internal macros
+#define MIN(x, y) (x < y ? x : y)
+#define MAX(x, y) (x > y ? x : y)
+#define CLAMP(x, x_min, x_max) MIN(MAX(x_min, x), x_max)
+#define UTF8_SIZE (4)
+#define COLOR_CODE_SIZE 7
+#define MAX_CELL_COUNT (300 * 80)
+#define MAX_TERM_BUFFER_SIZE (UTF8_SIZE * MAX_CELL_COUNT * COLOR_CODE_SIZE)
+#define LENGTH(ARR) (sizeof(ARR) / sizeof(ARR[0]))
+#define IN_BOUNDS(x, a, b) ((x >= a) && (x <= b))
+
+#define INIT_ITEMS_SIZE 32
 #define list_init(list, desired_size) \
   if ((list)->size < desired_size) { \
     (list)->size = desired_size; \
@@ -70,6 +72,7 @@
   (list)->items[(list)->count++] = (item)
 
 #define list_free(list) FREE((list)->items)
+// end of internal macros
 
 typedef int32_t i32;
 typedef uint32_t u32;
@@ -80,6 +83,44 @@ typedef uint8_t u8;
 typedef float f32;
 
 static const char* log_file_name = "log.txt";
+
+// https://www.asciitable.com/
+enum Ascii_code {
+  ASCII_NUL = 0, // null
+  ASCII_SOH, // start of heading
+  ASCII_STX, // start of text
+  ASCII_ETX, // end of text
+  ASCII_EOT, // end of transmission
+  ASCII_ENQ, // enquiry
+  ASCII_ACK, // acknowledge
+  ASCII_BEL, // bell
+  ASCII_BS,  // backspace
+  ASCII_TAB, // horizontal tab
+  ASCII_LF,  // line feed
+  ASCII_VT,  // vertical tab
+  ASCII_FF,  // form feed, new page
+  ASCII_CR,  // carriage return
+  ASCII_SO,  // shift out
+  ASCII_SI,  // shift in
+  ASCII_DLE, // data link escape
+  ASCII_DC1, // device control 1
+  ASCII_DC2, // device control 2
+  ASCII_DC3, // device control 3
+  ASCII_DC4, // device control 4
+  ASCII_NAK, // negative acknowledge
+  ASCII_SYN, // synchronous idle
+  ASCII_ETB, // end of transmission block
+  ASCII_CAN, // cancel
+  ASCII_EM,  // end of medium
+  ASCII_SUB, // substitute
+  ASCII_ESC, // escape
+  ASCII_FS,  // file separator
+  ASCII_GS,  // group separator
+  ASCII_RS,  // record separator
+  ASCII_US,  // unit separator
+
+  ASCII_DEL = 127
+};
 
 typedef enum Color {
   COLOR_NONE = 0,
@@ -106,7 +147,7 @@ typedef enum Color {
 } Color;
 
 static Color color_default = COLOR_NONE;
-static Color color_focus = COLOR_BOLD_PURPLE;
+static Color color_focus = COLOR_BOLD_RED;
 static Color color_text = COLOR_NONE;
 
 static char KEY_EXIT         = 4; // ctrl+d
@@ -162,8 +203,8 @@ enum Border_cell_orientation {
 };
 
 static Cell border_cells[MAX_BORDER_CELL] = {
-  { .code = {	0xe2, 0x95, 0xad, 0x00 }, .fg = COLOR_NONE }, // top left
-  { .code = {	0xe2, 0x95, 0xae, 0x00 }, .fg = COLOR_NONE }, // top right
+  { .code = { 0xe2, 0x95, 0xad, 0x00 }, .fg = COLOR_NONE }, // top left
+  { .code = { 0xe2, 0x95, 0xae, 0x00 }, .fg = COLOR_NONE }, // top right
   { .code = { 0xe2, 0x95, 0xb0, 0x00 }, .fg = COLOR_NONE }, // bottom left
   { .code = { 0xe2, 0x95, 0xaf, 0x00 }, .fg = COLOR_NONE }, // bottom right
 
@@ -217,7 +258,7 @@ typedef struct Box {
 
 typedef union Element_data {
   struct {
-    u32 max_cols;
+    u32 cols;
   } grid;
   struct {
     char* string;
@@ -237,7 +278,7 @@ typedef struct Element {
   Element_data data;
   u32 padding;
   u8 render; // render this element?
-  u8 border;
+  u8 border; // render a border of this element? only works if render is set to true
   u8 focus; // is the element in focus?
   u8 focusable; // can this element be focused?
 } Element;
@@ -255,7 +296,7 @@ typedef struct Termgui {
   u32 height;
   u32 size; // width * height
   Cell cells[MAX_CELL_COUNT];
-  char buffer[MAX_BUFFER_SIZE];
+  char buffer[MAX_TERM_BUFFER_SIZE];
   i32 cursor_x;
   i32 cursor_y;
   i32 render_event;
@@ -283,12 +324,13 @@ TERMGUI_API void tg_exit();
 TERMGUI_API void tg_colors_toggle();
 TERMGUI_API char* tg_err_string();
 TERMGUI_API void tg_print_error();
+TERMGUI_API i32 tg_log_fd();
 TERMGUI_API void tg_free();
 
-TERMGUI_API Result tg_empty_init(Element* e);
-TERMGUI_API Result tg_container_init(Element* e, u8 render);
-TERMGUI_API Result tg_grid_init(Element* e, u32 max_cols, u8 render);
-TERMGUI_API Result tg_text_init(Element* e, char* text);
+TERMGUI_API void tg_empty_init(Element* e);
+TERMGUI_API void tg_container_init(Element* e, u8 render);
+TERMGUI_API void tg_grid_init(Element* e, u32 cols, u8 render);
+TERMGUI_API void tg_text_init(Element* e, char* text);
 TERMGUI_API Element* tg_attach_element(Element* target, Element* e);
 
 static u8 utf8_decode_byte(u8 byte, u32* size);
@@ -363,7 +405,7 @@ Result tg_init() {
     tg->cursor_x = 0;
     tg->cursor_y = 0;
     tg->render_event = 1;
-    tg->switch_focus = FOCUS_NONE;
+    tg->switch_focus = FOCUS_SWITCH; // set to FOCUS_SWITCH to find the first focusable element
     tg->use_colors = 1;
     tg->initialized = 1;
     tg->status = NoError;
@@ -386,7 +428,10 @@ Result tg_init() {
 Result tg_update() {
   Termgui* tg = &term_gui;
   tg_prepare_frame(tg);
+  // make sure to clear all events
   tg->render_event = 0;
+  tg->input_code = 0;
+  tg->input_event = 0;
   tg_handle_sig_events(tg);
   tg_handle_input(tg);
   if (!Ok(tg->status)) {
@@ -427,7 +472,7 @@ Result tg_render() {
       tg->buffer[write_index++] = cell->code[0];
       ++decoded_size;
     }
-    assert(decoded_size <= MAX_BUFFER_SIZE);
+    assert(decoded_size <= MAX_TERM_BUFFER_SIZE);
     i32 write_size = write(tg->tty, &tg->buffer[0], decoded_size);
     (void)write_size;
     tg_cursor_update(tg);
@@ -525,10 +570,9 @@ void tg_render_text_ascii(Termgui* tg, Box box, char* text) {
   if (!text) {
     return;
   }
-  ++box.x;
-  ++box.y;
-  box.w -= 2;
-  box.h -= 2;
+  if (!box.w || !box.h) {
+    return;
+  }
   u32 x = 0;
   u32 y = 0;
   for (;;) {
@@ -595,7 +639,13 @@ char* tg_err_string() {
 void tg_print_error() {
   if (term_gui.status == Error) {
     dprintf(term_gui.fd, "[termgui-error]: %s\n", tg_err_string());
+    dprintf(STDERR_FILENO, "[termgui-error]: %s\n", tg_err_string());
   }
+}
+
+i32 tg_log_fd() {
+  Termgui* tg = &term_gui;
+  return tg->fd;
 }
 
 // https://git.suckless.org/st/
@@ -632,31 +682,28 @@ void tg_free() {
   ui_state_free(tg);
 }
 
-Result tg_empty_init(Element* e) {
+void tg_empty_init(Element* e) {
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
   e->render = 0;
-  return NoError;
 }
 
-Result tg_container_init(Element* e, u8 render) {
+void tg_container_init(Element* e, u8 render) {
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
   e->type = ELEM_CONTAINER;
   e->render = render;
-  return NoError;
 }
 
-Result tg_grid_init(Element* e, u32 max_cols, u8 render) {
+void tg_grid_init(Element* e, u32 cols, u8 render) {
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
-  e->data.grid.max_cols = max_cols;
+  e->data.grid.cols = cols;
   e->type = ELEM_GRID;
   e->render = render;
-  return NoError;
 }
 
-Result tg_text_init(Element* e, char* text) {
+void tg_text_init(Element* e, char* text) {
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
   e->data.text.string = text;
@@ -755,7 +802,7 @@ void ui_state_init(Termgui* tg) {
   ui_element_init(tg, &tg->ui.root);
   root->type = ELEM_CONTAINER;
   root->render = 0;
-  root->focus = 1;
+  root->focusable = 0;
 }
 
 void ui_element_init(Termgui* tg, Element* e) {
@@ -783,10 +830,12 @@ void ui_update_elements(Termgui* tg, Element* e) {
   if (tg->switch_focus == FOCUS_SWITCH && !e->focus && e->focusable) {
     e->focus = 1;
     tg->switch_focus = FOCUS_NONE;
+    tg->render_event = 1;
   }
   if (tg->switch_focus == FOCUS && e->focus && e->focusable) {
     e->focus = 0;
     tg->switch_focus = FOCUS_SWITCH;
+    tg->render_event = 1;
   }
   if (tg->input_code == KEY_SELECT && e->focus) {
     if (e->callback) {
@@ -797,7 +846,7 @@ void ui_update_elements(Termgui* tg, Element* e) {
     Element* item = &e->items[i];
     switch (e->type) {
       case ELEM_CONTAINER: {
-        const Box outer_box = e->box;
+        Box outer_box = e->box;
         item->box = BOX(
           outer_box.x + e->padding,
           outer_box.y + e->padding,
@@ -807,9 +856,8 @@ void ui_update_elements(Termgui* tg, Element* e) {
         break;
       }
       case ELEM_GRID: {
-        const u32 padding = 0;
         Box pbox = e->box; // parent box
-        if (e->data.grid.max_cols == 0) {
+        if (e->data.grid.cols == 0) {
           item->box = BOX(
             pbox.x + floorf((f32)pbox.w/e->count * i) + e->padding,
             pbox.y + e->padding,
@@ -818,8 +866,8 @@ void ui_update_elements(Termgui* tg, Element* e) {
           );
         }
         else {
-          u32 cols = e->data.grid.max_cols;
-          u32 rows = e->count / e->data.grid.max_cols;
+          u32 cols = e->data.grid.cols;
+          u32 rows = e->count / e->data.grid.cols;
           u32 w = ceilf((f32)pbox.w / cols);
           u32 h = ceilf((f32)pbox.h / rows);
           u32 x = i % cols;
@@ -932,4 +980,20 @@ void tabs(u32 fd, const u32 count) {
     dprintf(fd, "%s", tab);
   }
 }
+
+#undef MIN
+#undef MAX
+#undef CLAMP
+#undef UTF8_SIZE
+#undef COLOR_CODE_SIZE
+#undef MAX_CELL_COUNT
+#undef MAX_TERM_BUFFER_SIZE
+#undef LENGTH
+#undef IN_BOUNDS
+
+#undef INIT_ITEMS_SIZE
+#undef list_init
+#undef list_push
+#undef list_free
+
 #endif // _TERMGUI_H
