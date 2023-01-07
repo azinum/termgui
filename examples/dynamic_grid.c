@@ -4,17 +4,48 @@
 
 Element* grid = NULL;
 
+void on_input_event(Element* e, void* userdata, char input);
+
+i32 main(void) {
+  if (Ok(tg_init())) {
+    u32 cols = 1;
+    Element grid_element;
+    tg_grid_init(&grid_element, cols, false);
+    grid_element.focusable = 0;
+    grid_element.input_callback = on_input_event;
+    grid = tg_attach_element(NULL, &grid_element);
+
+    while (Ok(tg_update())) {
+      tg_render();
+    }
+    tg_free();
+  }
+  tg_print_error();
+  return 0;
+}
+
 void on_input_event(Element* e, void* userdata, char input) {
   switch (input) {
     case 'e': {
-      Element empty;
-      tg_empty_init(&empty);
-      empty.render = 1;
-      empty.border = 1;
-      empty.focusable = 1;
-      if (grid) {
-        tg_attach_element(grid, &empty);
+      if (!grid) {
+        break;
       }
+      // initialize container
+      Element container_element;
+      tg_container_init(&container_element, true /* render */);
+      container_element.padding = 2;
+
+      // initialize text element
+      char* text = "Blandit cursus risus at ultrices mi tempus imperdiet.";
+      Element text_element;
+      tg_text_init(&text_element, text);
+      text_element.border = false;
+      text_element.focusable = false;
+
+      // attach container to grid
+      Element* container = tg_attach_element(grid, &container_element);
+      // attach text element to container
+      tg_attach_element(container, &text_element);
       break;
     }
     case 'w': {
@@ -30,23 +61,4 @@ void on_input_event(Element* e, void* userdata, char input) {
     default:
       break;
   }
-}
-
-i32 main(void) {
-  if (Ok(tg_init())) {
-    u32 rows = 3;
-    u32 cols = 3;
-    Element grid_element;
-    tg_grid_init(&grid_element, cols, 0);
-    grid_element.focusable = 0;
-    grid_element.input_callback = on_input_event;
-    grid = tg_attach_element(NULL, &grid_element);
-
-    while (Ok(tg_update())) {
-      tg_render();
-    }
-    tg_free();
-  }
-  tg_print_error();
-  return 0;
 }

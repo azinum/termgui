@@ -4,7 +4,6 @@
 // - limit the window size
 // - validate utf-8
 // - configurable colors for elements
-// - element padding
 // - fix terminal flickering
 // - add ascii only mode for terminals with no utf-8 support
 
@@ -27,6 +26,8 @@
 #define TERMGUI_API static
 #define Ok(err) (err == NoError)
 #define Err(message) (err_string = message, term_gui.status = Error, Error)
+#define true 1
+#define false 0
 
 #ifdef CUSTOM_ALLOCATOR
   #define MALLOC
@@ -408,13 +409,13 @@ Result tg_init() {
     tg_cells_init(tg, &cell);
     tg->cursor_x = 0;
     tg->cursor_y = 0;
-    tg->render_event = 1;
+    tg->render_event = true;
     tg->switch_focus = FOCUS_SWITCH; // set to FOCUS_SWITCH to find the first focusable element
-    tg->use_colors = 1;
-    tg->initialized = 1;
+    tg->use_colors = true;
+    tg->initialized = true;
     tg->status = NoError;
     tg->fd = open(log_file_name, O_CREAT | O_TRUNC | O_WRONLY, 0662);
-    tg->input_event = 0;
+    tg->input_event = false;
     tg->input_code = 0;
     ui_state_init(tg);
 
@@ -432,10 +433,10 @@ Result tg_init() {
 Result tg_update() {
   Termgui* tg = &term_gui;
   tg_prepare_frame(tg);
-  // make sure to clear all events
-  tg->render_event = 0;
+  // clear all events
+  tg->render_event = false;
   tg->input_code = 0;
-  tg->input_event = 0;
+  tg->input_event = false;
   tg_handle_sig_events(tg);
   tg_handle_input(tg);
   if (!Ok(tg->status)) {
@@ -624,7 +625,7 @@ void tg_cursor_move(i32 delta_x, i32 delta_y) {
   Termgui* tg = &term_gui;
   tg->cursor_x = CLAMP(tg->cursor_x + delta_x, 0, tg->width);
   tg->cursor_y = CLAMP(tg->cursor_y + delta_y, 0, tg->height);
-  tg->render_event = 1;
+  tg->render_event = true;
 }
 
 void tg_exit() {
@@ -742,7 +743,7 @@ void tg_term_fetch_size(Termgui* tg) {
   tg->width = win.ws_col;
   tg->height = win.ws_row;
   tg->size = tg->width * tg->height;
-  tg->render_event = 1;
+  tg->render_event = true;
 }
 
 void tg_term_clear(Termgui* tg) {
@@ -811,8 +812,8 @@ void ui_state_init(Termgui* tg) {
   tg->ui.id_counter = 1;
   ui_element_init(tg, &tg->ui.root);
   root->type = ELEM_CONTAINER;
-  root->render = 0;
-  root->focusable = 0;
+  root->render = false;
+  root->focusable = false;
 }
 
 void ui_element_init(Termgui* tg, Element* e) {
@@ -830,10 +831,10 @@ void ui_element_init(Termgui* tg, Element* e) {
 
   memset(&e->data, 0, sizeof(Element_data));
   e->padding = 0;
-  e->render = 1;
-  e->border = 1;
-  e->focus = 0;
-  e->focusable = 1;
+  e->render = true;
+  e->border = true;
+  e->focus = false;
+  e->focusable = true;
 }
 
 void ui_update_elements(Termgui* tg, Element* e) {
@@ -841,14 +842,14 @@ void ui_update_elements(Termgui* tg, Element* e) {
     return;
   }
   if (tg->switch_focus == FOCUS_SWITCH && !e->focus && e->focusable) {
-    e->focus = 1;
+    e->focus = true;
     tg->switch_focus = FOCUS_NONE;
-    tg->render_event = 1;
+    tg->render_event = true;
   }
   if (tg->switch_focus == FOCUS && e->focus && e->focusable) {
-    e->focus = 0;
+    e->focus = false;
     tg->switch_focus = FOCUS_SWITCH;
-    tg->render_event = 1;
+    tg->render_event = true;
   }
   if (tg->input_event) {
     if (tg->input_code == KEY_SELECT && e->focus) {
@@ -956,8 +957,8 @@ void ui_print_elements(Termgui* tg, Element* e, u32 level) {
   dprintf(tg->fd, "{\n");
   tabs(tg->fd, level + 1); dprintf(tg->fd, "type: %s\n", element_type_str[e->type]);
   tabs(tg->fd, level + 1); dprintf(tg->fd, "id: %d\n", e->id);
-  tabs(tg->fd, level + 1); dprintf(tg->fd, "render: %s\n", bool_str[e->render == 1]);
-  tabs(tg->fd, level + 1); dprintf(tg->fd, "focus: %s\n", bool_str[e->focus == 1]);
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "render: %s\n", bool_str[e->render == true]);
+  tabs(tg->fd, level + 1); dprintf(tg->fd, "focus: %s\n", bool_str[e->focus == true]);
   tabs(tg->fd, level + 1); dprintf(tg->fd, "box: {%d, %d, %d, %d}\n", e->box.x, e->box.y, e->box.w, e->box.h);
 
   for (u32 i = 0; i < e->count; ++i) {
