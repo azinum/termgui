@@ -2,8 +2,6 @@
 
 #include "termgui.h"
 
-Element* grid = NULL;
-
 void on_input_event(Element* e, void* userdata, char input);
 
 i32 main(void) {
@@ -13,7 +11,7 @@ i32 main(void) {
     tg_grid_init(&grid_element, cols, false);
     grid_element.focusable = 0;
     grid_element.input_callback = on_input_event;
-    grid = tg_attach_element(NULL, &grid_element);
+    tg_attach_element(NULL, &grid_element);
 
     while (Ok(tg_update())) {
       tg_render();
@@ -27,9 +25,6 @@ i32 main(void) {
 void on_input_event(Element* e, void* userdata, char input) {
   switch (input) {
     case 'e': {
-      if (!grid) {
-        break;
-      }
       // initialize container
       Element container_element;
       tg_container_init(&container_element, true /* render */);
@@ -43,7 +38,7 @@ void on_input_event(Element* e, void* userdata, char input) {
       text_element.focusable = false;
 
       // attach container to grid
-      Element* container = tg_attach_element(grid, &container_element);
+      Element* container = tg_attach_element(e, &container_element);
       // attach text element to container
       tg_attach_element(container, &text_element);
       break;
