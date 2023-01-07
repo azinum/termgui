@@ -5,7 +5,6 @@
 // - validate utf-8
 // - configurable colors for elements
 // - element padding
-// - render n*n grid with m items where m<n*n
 // - fix terminal flickering
 // - add ascii only mode for terminals with no utf-8 support
 
@@ -147,7 +146,7 @@ typedef enum Color {
 } Color;
 
 static Color color_default = COLOR_NONE;
-static Color color_focus = COLOR_BOLD_RED;
+static Color color_focus = COLOR_BOLD_PURPLE;
 static Color color_text = COLOR_NONE;
 
 static char KEY_EXIT         = 4; // ctrl+d
@@ -259,6 +258,7 @@ typedef struct Box {
 
 typedef union Element_data {
   struct {
+    u32 rows;
     u32 cols;
   } grid;
   struct {
@@ -628,7 +628,7 @@ void tg_cursor_move(i32 delta_x, i32 delta_y) {
 }
 
 void tg_exit() {
-  term_gui.status = Done;  
+  term_gui.status = Done;
 }
 
 void tg_colors_toggle() {
@@ -700,6 +700,11 @@ void tg_container_init(Element* e, u8 render) {
 }
 
 void tg_grid_init(Element* e, u32 cols, u8 render) {
+  if (!cols) {
+    Err("tg_grid_init: cols must be > 0");
+    return;
+  }
+
   Termgui* tg = &term_gui;
   ui_element_init(tg, e);
   e->data.grid.cols = cols;
@@ -712,6 +717,7 @@ void tg_text_init(Element* e, char* text) {
   ui_element_init(tg, e);
   e->data.text.string = text;
   e->type = ELEM_TEXT;
+  e->border = 0;
 }
 
 Element* tg_attach_element(Element* target, Element* e) {
@@ -868,29 +874,19 @@ void ui_update_elements(Termgui* tg, Element* e) {
         break;
       }
       case ELEM_GRID: {
-        Box pbox = e->box; // parent box
-        if (e->data.grid.cols == 0) {
-          item->box = BOX(
-            pbox.x + floorf((f32)pbox.w/e->count * i) + e->padding,
-            pbox.y + e->padding,
-            ceilf((f32)pbox.w/e->count) - 2 * e->padding,
-            pbox.h - 2 * e->padding
-          );
-        }
-        else {
-          u32 cols = e->data.grid.cols;
-          u32 rows = e->count / e->data.grid.cols;
-          u32 w = ceilf((f32)pbox.w / cols);
-          u32 h = ceilf((f32)pbox.h / rows);
-          u32 x = i % cols;
-          u32 y = (u32)floorf((f32)i / cols);
-          item->box = BOX(
-            pbox.x + x * w + e->padding,
-            pbox.y + y * h + e->padding,
-            w - 2 * e->padding,
-            h - 2 * e->padding
-          );
-        }
+        const Box pbox = e->box; // parent box
+        const u32 cols = e->data.grid.cols;
+        const u32 rows = (u32)ceilf((f32)e->count / e->data.grid.cols);
+        const u32 w = ceilf((f32)pbox.w / cols);
+        const u32 h = ceilf((f32)pbox.h / rows);
+        const u32 x = i % cols;
+        const u32 y = (u32)floorf((f32)i / cols);
+        item->box = BOX(
+          pbox.x + x * w + e->padding,
+          pbox.y + y * h + e->padding,
+          w - 2 * e->padding,
+          h - 2 * e->padding
+        );
         break;
       }
       default:

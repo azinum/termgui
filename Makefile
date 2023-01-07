@@ -2,7 +2,7 @@
 
 CC=gcc
 C_FLAGS=-pedantic -lm -O2 -I.
-TARGETS=test utf8code grid edit
+TARGETS=test utf8code grid edit dynamic_grid
 
 all: ${TARGETS}
 
@@ -13,6 +13,8 @@ utf8code: utf8code.c
 grid: examples/grid.c termgui.h
 	${CC} $< -o $@ ${C_FLAGS}
 edit: examples/edit.c termgui.h
+	${CC} $< -o $@ ${C_FLAGS}
+dynamic_grid: examples/dynamic_grid.c termgui.h
 	${CC} $< -o $@ ${C_FLAGS}
 
 clean:

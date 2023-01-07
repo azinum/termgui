@@ -23,7 +23,6 @@ i32 main(i32 argc, char** argv) {
     char* text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Blandit cursus risus at ultrices mi tempus imperdiet.";
     Element text_element;
     tg_text_init(&text_element, text);
-    text_element.border = 1;
     text_element.focusable = 0;
 
     for (u32 i = 0; i < count; ++i) {
