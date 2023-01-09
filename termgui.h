@@ -6,6 +6,7 @@
 // - configurable colors for elements
 // - fix terminal flickering
 // - add ascii only mode for terminals with no utf-8 support
+// - distribute events from parent to children
 
 #ifndef _TERMGUI_H
 #define _TERMGUI_H
@@ -225,6 +226,7 @@ typedef enum Element_type {
   ELEM_CONTAINER,
   ELEM_GRID,
   ELEM_TEXT,
+  ELEM_TOGGLE,
 
   MAX_ELEMENT_TYPE
 } Element_type;
@@ -234,6 +236,7 @@ const char* element_type_str[MAX_ELEMENT_TYPE] = {
   "container",
   "grid",
   "text",
+  "toggle",
 };
 
 typedef enum Focus_state {
@@ -247,6 +250,7 @@ const char* bool_str[] = { "false", "true" };
 struct Element;
 typedef void (*element_callback)(struct Element* element, void* userdata);
 typedef void (*element_input_callback)(struct Element* element, void* userdata, char input);
+typedef void (*element_toggle_callback)(struct Element* element, void* userdata, u8 toggle_value);
 
 typedef struct Box {
   u32 x;
@@ -265,6 +269,10 @@ typedef union Element_data {
   struct {
     char* string;
   } text;
+  struct {
+    element_toggle_callback callback;
+    u8 value;
+  } toggle;
 } Element_data;
 
 typedef struct Element {
@@ -336,6 +344,7 @@ TERMGUI_API void tg_empty_init(Element* e);
 TERMGUI_API void tg_container_init(Element* e, u8 render);
 TERMGUI_API void tg_grid_init(Element* e, u32 cols, u8 render);
 TERMGUI_API void tg_text_init(Element* e, char* text);
+TERMGUI_API void tg_toggle_init(Element* e, u8 toggle_value, element_toggle_callback callback);
 TERMGUI_API Element* tg_attach_element(Element* target, Element* e);
 
 static u8 utf8_decode_byte(u8 byte, u32* size);
@@ -718,7 +727,16 @@ void tg_text_init(Element* e, char* text) {
   ui_element_init(tg, e);
   e->data.text.string = text;
   e->type = ELEM_TEXT;
-  e->border = 0;
+  e->border = false;
+}
+
+void tg_toggle_init(Element* e, u8 toggle_value, element_toggle_callback callback) {
+  Termgui* tg = &term_gui;
+  ui_element_init(tg, e);
+  e->data.toggle.callback = callback;
+  e->data.toggle.value = toggle_value;
+  e->type = ELEM_TOGGLE;
+  e->focusable = true;
 }
 
 Element* tg_attach_element(Element* target, Element* e) {
@@ -855,6 +873,12 @@ void ui_update_elements(Termgui* tg, Element* e) {
     if (tg->input_code == KEY_SELECT && e->focus) {
       if (e->select_callback) {
         e->select_callback(e, e->userdata);
+      }
+      if (e->type == ELEM_TOGGLE) {
+        e->data.toggle.value = !e->data.toggle.value;
+        if (e->data.toggle.callback) {
+          e->data.toggle.callback(e, e->userdata, e->data.toggle.value);
+        }
       }
     }
     if (e->input_callback) {
