@@ -8,7 +8,7 @@ typedef struct Buffer {
   u32 size;
 } Buffer;
 
-void on_input(Element* e, void* userdata, char input);
+void on_input(Element* e, void* userdata, const char* input, u32 size);
 void buffer_init(Buffer* buffer, char* data, u32 size);
 void buffer_push(Buffer* buffer, char ch);
 void buffer_pop(Buffer* buffer);
@@ -66,20 +66,25 @@ i32 main(i32 argc, char** argv) {
   return 0;
 }
 
-void on_input(Element* e, void* userdata, char input) {
+void on_input(Element* e, void* userdata, const char* input, u32 size) {
+  if (!size) {
+    return;
+  }
+  dprintf(tg_log_fd(), "got input `%c`, %d bytes\n", *input, size);
   Buffer* buffer = (Buffer*)userdata;
-  switch (input) {
+  char ch = *input;
+  switch (ch) {
     case ASCII_DEL: {
       buffer_pop(buffer);
       break;
     }
     case ASCII_LF: {
-      buffer_push(buffer, input);
+      buffer_push(buffer, ch);
       break;
     }
     default: {
-      if (input >= 32 && input <= 126) {
-        buffer_push(buffer, input);
+      if (ch >= 32 && ch <= 126) {
+        buffer_push(buffer, ch);
       }
       break;
     }

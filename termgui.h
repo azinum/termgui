@@ -75,6 +75,8 @@
 #define list_free(list) FREE((list)->items)
 // end of internal macros
 
+#define return_defer(value) do { result = (value); goto defer; } while (0)
+
 typedef int32_t i32;
 typedef uint32_t u32;
 typedef int16_t i16;
@@ -249,7 +251,7 @@ const char* bool_str[] = { "false", "true" };
 
 struct Element;
 typedef void (*element_callback)(struct Element* element, void* userdata);
-typedef void (*element_input_callback)(struct Element* element, void* userdata, char input);
+typedef void (*element_input_callback)(struct Element* element, void* userdata, const char* input, u32 size);
 typedef void (*element_toggle_callback)(struct Element* element, void* userdata, u8 toggle_value);
 
 typedef struct Box {
@@ -301,6 +303,8 @@ typedef struct Ui_state {
   u32 id_counter;
 } Ui_state;
 
+#define MAX_INPUT_BUFFER 6
+
 typedef struct Termgui {
   i32 tty;
   struct termios term_copy;
@@ -319,7 +323,8 @@ typedef struct Termgui {
   Result status;
   i32 fd; // fd for logging
   i32 input_event;
-  char input_code;
+  char input_code[MAX_INPUT_BUFFER];
+  u32 input_code_size;
   Ui_state ui;
 } Termgui;
 
@@ -425,7 +430,9 @@ Result tg_init() {
     tg->status = NoError;
     tg->fd = open(log_file_name, O_CREAT | O_TRUNC | O_WRONLY, 0662);
     tg->input_event = false;
-    tg->input_code = 0;
+    memset(&tg->input_code[0], 0, sizeof(tg->input_code));
+    tg->input_code_size = 0;
+
     ui_state_init(tg);
 
     signal(SIGWINCH, sigwinch);
@@ -444,7 +451,7 @@ Result tg_update() {
   tg_prepare_frame(tg);
   // clear all events
   tg->render_event = false;
-  tg->input_code = 0;
+  tg->input_code_size = 0;
   tg->input_event = false;
   tg_handle_sig_events(tg);
   tg_handle_input(tg);
@@ -499,7 +506,7 @@ i32 tg_input(char* input) {
   Termgui* tg = &term_gui;
   i32 input_event = tg->input_event;
   if (input && input_event) {
-    *input = tg->input_code;
+    *input = tg->input_code[0];
   }
   return input_event;
 }
@@ -513,21 +520,33 @@ u32 tg_height() {
 }
 
 i32 tg_handle_input(Termgui* tg) {
-  char input = 0;
-  i32 read_size = read(tg->tty, &input, 1);
-  if (read_size > 0) {
-    if (input == KEY_EXIT) {
+  i32 read_size = 0;
+  char* buffer = &tg->input_code[0];
+
+  tg->input_event = false;
+  tg->input_code_size = 0;
+
+  while (read_size < MAX_INPUT_BUFFER) {
+    i32 current_read = read(tg->tty, buffer, 1);
+    if (current_read <= 0) {
+      break;
+    }
+    read_size += current_read;
+    if (*buffer == KEY_EXIT) {
       tg->status = Done;
+      break;
     }
-    else if (input == KEY_SWITCH_FOCUS) {
+    else if (*buffer == KEY_SWITCH_FOCUS) {
       tg->switch_focus = FOCUS;
+      break;
     }
-    tg->render_event = 1;
-    tg->input_event = 1;
-    tg->input_code = input;
+    ++buffer;
   }
-  else {
-    tg->input_event = 0;
+  tg->input_code_size = read_size;
+
+  if (read_size > 0) {
+    tg->input_event = true;
+    tg->render_event = true;
   }
   return read_size;
 }
@@ -870,7 +889,7 @@ void ui_update_elements(Termgui* tg, Element* e) {
     tg->render_event = true;
   }
   if (tg->input_event) {
-    if (tg->input_code == KEY_SELECT && e->focus) {
+    if (tg->input_code[0] == KEY_SELECT && e->focus) {
       if (e->select_callback) {
         e->select_callback(e, e->userdata);
       }
@@ -882,7 +901,7 @@ void ui_update_elements(Termgui* tg, Element* e) {
       }
     }
     if (e->input_callback) {
-      e->input_callback(e, e->userdata, tg->input_code);
+      e->input_callback(e, e->userdata, (const char*)&tg->input_code[0], tg->input_code_size);
     }
   }
   for (u32 i = 0; i < e->count; ++i) {

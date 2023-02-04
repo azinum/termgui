@@ -2,7 +2,7 @@
 
 #include "termgui.h"
 
-void on_input_event(Element* e, void* userdata, char input);
+void on_input_event(Element* e, void* userdata, const char* input, u32 size);
 
 i32 main(void) {
   if (Ok(tg_init())) {
@@ -22,8 +22,12 @@ i32 main(void) {
   return 0;
 }
 
-void on_input_event(Element* e, void* userdata, char input) {
-  switch (input) {
+void on_input_event(Element* e, void* userdata, const char* input, u32 size) {
+  if (!size) {
+    return;
+  }
+  char ch = *input;
+  switch (ch) {
     case 'e': {
       // initialize container
       Element container_element;
