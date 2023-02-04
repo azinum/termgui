@@ -443,7 +443,11 @@ Result tg_init() {
     tg->use_colors = true;
     tg->initialized = true;
     tg->status = NoError;
+#ifdef USE_LOG_FILE
     tg->fd = open(log_file_name, O_CREAT | O_TRUNC | O_WRONLY, 0662);
+#else
+    tg->fd = -1;
+#endif
     tg->input_event = false;
     memset(&tg->input_code[0], 0, sizeof(tg->input_code));
     tg->input_code_size = 0;
