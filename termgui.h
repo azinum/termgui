@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <locale.h> // setlocale
 #include <math.h> // floorf, ceilf
+#include <sys/time.h> // gettimeofday
 
 #define TERMGUI_API static
 #define Ok(err) (err == NoError)
@@ -76,6 +77,18 @@
 // end of internal macros
 
 #define return_defer(value) do { result = (value); goto defer; } while (0)
+
+#define TIMER_START(...) \
+  struct timeval _end = {0}; \
+  struct timeval _start = {0}; \
+  gettimeofday(&_start, NULL); \
+  __VA_ARGS__
+
+#define TIMER_END(...) { \
+  gettimeofday(&_end, NULL); \
+  f64 _dt = ((((_end.tv_sec - _start.tv_sec) * 1000000.0f) + _end.tv_usec) - (_start.tv_usec)) / 1000000.0f; \
+  __VA_ARGS__ \
+}
 
 typedef int32_t i32;
 typedef uint32_t u32;
@@ -286,6 +299,7 @@ typedef struct Element {
   Box box;
   Element_type type;
 
+  element_callback update_callback;
   element_callback select_callback;
   element_input_callback input_callback;
   void* userdata;
@@ -334,6 +348,7 @@ static Termgui term_gui = {0};
 TERMGUI_API Result tg_init();
 TERMGUI_API Result tg_update();
 TERMGUI_API Result tg_render();
+TERMGUI_API void tg_refresh();
 TERMGUI_API i32 tg_input(char* input);
 TERMGUI_API u32 tg_width();
 TERMGUI_API u32 tg_height();
@@ -500,6 +515,12 @@ Result tg_render() {
     fsync(tg->tty);
   }
   return tg->status;
+}
+
+void tg_refresh() {
+  Termgui* tg = &term_gui;
+  tg->render_event = true;
+  // TODO(lucas): causes the terminal window to flicker, fix this
 }
 
 i32 tg_input(char* input) {
@@ -862,6 +883,7 @@ void ui_element_init(Termgui* tg, Element* e) {
   e->box = BOX(0, 0, 0, 0);
   e->type = ELEM_NONE;
 
+  e->update_callback = NULL;
   e->select_callback = NULL;
   e->input_callback = NULL;
   e->userdata = NULL;
@@ -903,6 +925,9 @@ void ui_update_elements(Termgui* tg, Element* e) {
     if (e->input_callback) {
       e->input_callback(e, e->userdata, (const char*)&tg->input_code[0], tg->input_code_size);
     }
+  }
+  if (e->update_callback) {
+    e->update_callback(e, e->userdata);
   }
   for (u32 i = 0; i < e->count; ++i) {
     Element* item = &e->items[i];
