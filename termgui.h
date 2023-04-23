@@ -218,6 +218,18 @@ enum Border_cell_orientation {
   MAX_BORDER_CELL
 };
 
+typedef enum {
+  I_NOP = 0,
+  I_RENDER_EVENT,
+  I_INPUT_EVENT,
+} Instruction;
+
+#define MAX_INSTRUCTION 64
+typedef struct {
+  Instruction ins[MAX_INSTRUCTION];
+  u32 ins_count;
+} Small_vm;
+
 static Cell border_cells[MAX_BORDER_CELL] = {
   { .code = { 0xe2, 0x95, 0xad, 0x00 }, .fg = COLOR_NONE }, // top left
   { .code = { 0xe2, 0x95, 0xae, 0x00 }, .fg = COLOR_NONE }, // top right
@@ -340,6 +352,7 @@ typedef struct Termgui {
   char input_code[MAX_INPUT_BUFFER];
   u32 input_code_size;
   Ui_state ui;
+  Small_vm vm;
 } Termgui;
 
 static Termgui term_gui = {0};
@@ -366,6 +379,11 @@ TERMGUI_API void tg_grid_init(Element* e, u32 cols, u8 render);
 TERMGUI_API void tg_text_init(Element* e, char* text);
 TERMGUI_API void tg_toggle_init(Element* e, u8 toggle_value, element_toggle_callback callback);
 TERMGUI_API Element* tg_attach_element(Element* target, Element* e);
+
+void vm_init(Small_vm* vm);
+void vm_execute(Termgui* tg);
+TERMGUI_API void vm_push_ins(Instruction ins);
+TERMGUI_API void vm_reset();
 
 static u8 utf8_decode_byte(u8 byte, u32* size);
 
@@ -453,7 +471,7 @@ Result tg_init() {
     tg->input_code_size = 0;
 
     ui_state_init(tg);
-
+    vm_init(&tg->vm);
     signal(SIGWINCH, sigwinch);
     signal(SIGINT, sigint);
     tg_queue_sig_event(tg, SIG_EVENT_WINCH);
@@ -468,6 +486,7 @@ Result tg_init() {
 Result tg_update() {
   Termgui* tg = &term_gui;
   tg_prepare_frame(tg);
+
   // clear all events
   tg->render_event = false;
   tg->input_code_size = 0;
@@ -477,6 +496,8 @@ Result tg_update() {
   if (!Ok(tg->status)) {
     return tg->status;
   }
+  vm_execute(tg);
+  vm_reset(&tg->vm);
   ui_update(tg);
   return tg->status;
 }
@@ -793,6 +814,41 @@ Element* tg_attach_element(Element* target, Element* e) {
   e->id = tg->ui.id_counter++;
   list_push(target, *e);
   return &target->items[index];
+}
+
+void vm_init(Small_vm* vm) {
+  vm->ins_count = 0;
+}
+
+void vm_execute(Termgui* tg) {
+  Small_vm* vm = &tg->vm;
+  Instruction* ins = &vm->ins[0];
+  for (u32 i = 0; i < vm->ins_count; ++i, ++ins) {
+    switch (*ins) {
+      case I_NOP:
+        break;
+      case I_RENDER_EVENT:
+        tg->render_event = true;
+        break;
+      case I_INPUT_EVENT:
+        tg->input_event = true;
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+void vm_push_ins(Instruction ins) {
+  Small_vm* vm = &term_gui.vm;
+  if (vm->ins_count < MAX_INSTRUCTION) {
+    vm->ins[vm->ins_count++] = ins;
+  }
+}
+
+void vm_reset() {
+  Termgui* tg = &term_gui;
+  tg->vm.ins_count = 0;
 }
 
 void tg_cursor_update(Termgui* tg) {
