@@ -33,6 +33,7 @@ void on_input_event(Element* e, void* userdata, const char* input, u32 size) {
       Element container_element;
       tg_container_init(&container_element, true /* render */);
       container_element.padding = 2;
+      container_element.data.text.string = "title";
 
       // initialize text element
       char* text = "Blandit cursus risus at ultrices mi tempus imperdiet.";

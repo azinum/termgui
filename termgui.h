@@ -11,11 +11,22 @@
 #ifndef _TERMGUI_H
 #define _TERMGUI_H
 
-#include <stdlib.h> // malloc, realloc, free
 #include <stdint.h>
-#include <string.h> // memset
-#include <stdio.h>
 #include <unistd.h>
+
+#ifdef NO_STDLIB
+  extern void* memset(void* p, i32 c, size_t n);
+  extern void* memcpy(void* dest, const void* src, size_t n);
+#else
+  #include <stdlib.h> // malloc, realloc, free
+  #include <string.h> // memset
+#endif
+
+#ifdef NO_STDIO
+#else
+  #include <stdio.h>
+#endif
+
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
@@ -32,13 +43,10 @@
 #define false 0
 
 #ifdef CUSTOM_ALLOCATOR
-  #define MALLOC
-  #define FREE
-  #define REALLOC
 #else
-  #define MALLOC malloc
-  #define FREE free
-  #define REALLOC realloc
+  #define TG_MALLOC malloc
+  #define TG_FREE free
+  #define TG_REALLOC realloc
 #endif
 
 // internal macros
@@ -56,7 +64,7 @@
 #define list_init(list, desired_size) \
   if ((list)->size < desired_size) { \
     (list)->size = desired_size; \
-    (list)->items = REALLOC((list)->items, (list)->size * sizeof(*(list)->items)); \
+    (list)->items = TG_REALLOC((list)->items, (list)->size * sizeof(*(list)->items)); \
     assert((list)->items != NULL && "out of memory"); \
   }
 
@@ -68,12 +76,12 @@
     else { \
       (list)->size *= 2; \
     } \
-    (list)->items = REALLOC((list)->items, (list)->size * sizeof(*(list)->items)); \
+    (list)->items = TG_REALLOC((list)->items, (list)->size * sizeof(*(list)->items)); \
     assert((list)->items != NULL && "out of memory"); \
   } \
   (list)->items[(list)->count++] = (item)
 
-#define list_free(list) FREE((list)->items)
+#define list_free(list) TG_FREE((list)->items)
 // end of internal macros
 
 #define return_defer(value) do { result = (value); goto defer; } while (0)
@@ -1040,16 +1048,23 @@ void ui_render_elements(Termgui* tg, Element* e) {
     if (e->focus) {
       fg_color = color_focus;
     }
+    if (e->border) {
+      tg_render_box(tg, e->box, fg_color);
+    }
     switch (e->type) {
+      case ELEM_CONTAINER: {
+        char* text = e->data.text.string;
+        if (text) {
+          tg_render_text_ascii(tg, e->box, text);
+        }
+        break;
+      }
       case ELEM_TEXT: {
         tg_render_text_ascii(tg, e->box, e->data.text.string);
         break;
       }
       default:
         break;
-    }
-    if (e->border) {
-      tg_render_box(tg, e->box, fg_color);
     }
   }
   for (u32 i = 0; i < e->count; ++i) {
